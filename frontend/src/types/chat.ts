@@ -7,6 +7,7 @@ export interface ChatMessage {
   tool_calls: Record<string, unknown> | null;
   tool_results: Record<string, unknown> | null;
   state_version: number | null;
+  model: string | null;
   created_at: string;
 }
 
@@ -15,4 +16,9 @@ export interface ChatStreamState {
   sending: boolean;
   streamingText: string;
   activeTools: string[];
+}
+
+export interface ModelInfo {
+  id: string;
+  label: string;
 }

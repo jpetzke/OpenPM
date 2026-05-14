@@ -12,23 +12,18 @@ export function useChatStream(projectId: string) {
     streamingText: "",
     activeTools: [],
   });
+
   const queuedText = useRef("");
   const rafRef = useRef<number | null>(null);
   const streamClosedRef = useRef(false);
   const completionRef = useRef<((assistantMessage: string, success: boolean) => void) | null>(null);
   const fullTextRef = useRef("");
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const flushCompletionIfReady = useCallback(() => {
-    if (queuedText.current || !streamClosedRef.current) {
-      return;
-    }
+    if (queuedText.current || !streamClosedRef.current) return;
     streamClosedRef.current = false;
-    setState((prev) => ({
-      ...prev,
-      streaming: false,
-      sending: false,
-      activeTools: [],
-    }));
+    setState((prev) => ({ ...prev, streaming: false, sending: false, activeTools: [] }));
     const completion = completionRef.current;
     completionRef.current = null;
     completion?.(fullTextRef.current, true);
@@ -52,37 +47,60 @@ export function useChatStream(projectId: string) {
     };
     rafRef.current = window.requestAnimationFrame(pump);
     return () => {
-      if (rafRef.current !== null) {
-        window.cancelAnimationFrame(rafRef.current);
-      }
+      if (rafRef.current !== null) window.cancelAnimationFrame(rafRef.current);
     };
   }, [flushCompletionIfReady]);
+
+  const abort = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    queuedText.current = "";
+    streamClosedRef.current = false;
+    const completion = completionRef.current;
+    completionRef.current = null;
+    setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
+    // Return whatever was streamed so far so the caller can still show it.
+    completion?.(fullTextRef.current, fullTextRef.current.length > 0);
+  }, []);
 
   const sendMessage = useCallback(
     async (
       content: string,
-      onComplete: (assistantMessage: string, success: boolean) => void
+      onComplete: (assistantMessage: string, success: boolean) => void,
+      selectedModel?: string,
     ) => {
+      // Clean up any previous stream.
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+
       queuedText.current = "";
       streamClosedRef.current = false;
       fullTextRef.current = "";
       completionRef.current = onComplete;
       setState({ streaming: false, sending: true, streamingText: "", activeTools: [] });
+
       try {
+        const body: Record<string, unknown> = { content };
+        if (selectedModel) body.model = selectedModel;
+
         const res = await fetch(`/api/projects/${projectId}/chat`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify(body),
+          signal: controller.signal,
         });
+
         if (!res.ok || !res.body) {
           completionRef.current = null;
           setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
           onComplete("", false);
           return;
         }
+
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
@@ -125,7 +143,7 @@ export function useChatStream(projectId: string) {
                 queuedText.current = "";
                 streamClosedRef.current = false;
                 completionRef.current = null;
-                setState((prev) => ({ ...prev, streaming: false, sending: false, activeTools: [] }));
+                setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
                 toast.error(data.message || "Chat-Antwort fehlgeschlagen");
                 onComplete(fullTextRef.current, false);
               }
@@ -134,23 +152,26 @@ export function useChatStream(projectId: string) {
             }
           }
         }
-      } catch {
+      } catch (err: unknown) {
+        // AbortError means the user cancelled — not a real error.
+        if (err instanceof Error && err.name === "AbortError") return;
         completionRef.current = null;
-        setState((prev) => ({ ...prev, streaming: false, sending: false, activeTools: [] }));
+        setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
         toast.error("Netzwerkfehler beim Chat");
         onComplete(fullTextRef.current, false);
         return;
       }
+
       flushCompletionIfReady();
       if (completionRef.current) {
         const completion = completionRef.current;
         completionRef.current = null;
-        setState((prev) => ({ ...prev, streaming: false, sending: false, activeTools: [] }));
+        setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
         completion(fullTextRef.current, fullTextRef.current.length > 0);
       }
     },
-    [flushCompletionIfReady, projectId, token]
+    [flushCompletionIfReady, projectId, token],
   );
 
-  return { ...state, sendMessage };
+  return { ...state, sendMessage, abort };
 }
