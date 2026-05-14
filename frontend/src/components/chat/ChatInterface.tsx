@@ -48,6 +48,11 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
   };
 
   const allMessages = [...(history ?? []), ...optimisticMessages];
+  const lastHistoryAssistant = [...(history ?? [])].reverse().find((message) => message.role === "assistant");
+  const shouldRenderStreamingMessage =
+    streaming &&
+    Boolean(streamingText) &&
+    lastHistoryAssistant?.content !== streamingText;
 
   return (
     <div className="flex flex-col h-full">
@@ -62,7 +67,7 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
         {allMessages.map((msg) => (
           <ChatMessageComponent key={msg.id} message={msg} />
         ))}
-        {streaming && streamingText && (
+        {shouldRenderStreamingMessage && (
           <ChatMessageComponent
             message={{
               id: "streaming",
