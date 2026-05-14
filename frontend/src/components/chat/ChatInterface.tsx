@@ -5,7 +5,7 @@ import { api } from "@/lib/api";
 import { useChatStream } from "@/hooks/useChatStream";
 import { ChatMessageComponent } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
-import type { ChatMessage } from "@/types/chat";
+import type { ChatMessage, ModelInfo } from "@/types/chat";
 
 interface ChatInterfaceProps {
   projectId: string;
@@ -13,15 +13,28 @@ interface ChatInterfaceProps {
 
 export function ChatInterface({ projectId }: ChatInterfaceProps) {
   const qc = useQueryClient();
-  const { streaming, sending, streamingText, activeTools, sendMessage } = useChatStream(projectId);
+  const { streaming, sending, streamingText, activeTools, sendMessage, abort } = useChatStream(projectId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<ChatMessage[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
 
   const { data: history } = useQuery<ChatMessage[]>({
     queryKey: ["projects", projectId, "chat", "history"],
-    queryFn: () =>
-      api.get<ChatMessage[]>(`/api/projects/${projectId}/chat/history`),
+    queryFn: () => api.get<ChatMessage[]>(`/api/projects/${projectId}/chat/history`),
   });
+
+  const { data: models } = useQuery<ModelInfo[]>({
+    queryKey: ["settings", "models"],
+    queryFn: () => api.get<ModelInfo[]>("/api/settings/models"),
+    staleTime: Infinity,
+  });
+
+  // Set default model once models are loaded.
+  useEffect(() => {
+    if (models && models.length > 0 && !selectedModel) {
+      setSelectedModel(models[0].id);
+    }
+  }, [models, selectedModel]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -37,22 +50,31 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
       tool_calls: null,
       tool_results: null,
       state_version: null,
+      model: selectedModel ?? null,
       created_at: new Date().toISOString(),
     };
     setOptimisticMessages((prev) => [...prev, optimistic]);
 
-    sendMessage(content, () => {
-      setOptimisticMessages([]);
-      qc.invalidateQueries({ queryKey: ["projects", projectId, "chat", "history"] });
-    });
+    sendMessage(
+      content,
+      () => {
+        setOptimisticMessages([]);
+        qc.invalidateQueries({ queryKey: ["projects", projectId, "chat", "history"] });
+      },
+      selectedModel,
+    );
+  };
+
+  const handleAbort = () => {
+    abort();
+    setOptimisticMessages([]);
+    qc.invalidateQueries({ queryKey: ["projects", projectId, "chat", "history"] });
   };
 
   const allMessages = [...(history ?? []), ...optimisticMessages];
-  const lastHistoryAssistant = [...(history ?? [])].reverse().find((message) => message.role === "assistant");
+  const lastHistoryAssistant = [...(history ?? [])].reverse().find((m) => m.role === "assistant");
   const shouldRenderStreamingMessage =
-    streaming &&
-    Boolean(streamingText) &&
-    lastHistoryAssistant?.content !== streamingText;
+    streaming && Boolean(streamingText) && lastHistoryAssistant?.content !== streamingText;
 
   return (
     <div className="flex flex-col h-full">
@@ -78,6 +100,7 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
               tool_calls: null,
               tool_results: null,
               state_version: null,
+              model: selectedModel ?? null,
               created_at: new Date().toISOString(),
             }}
             isStreaming
@@ -90,12 +113,20 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
         )}
         {activeTools.length > 0 && (
           <div className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
-            Nutzt Kontext: {activeTools.join(", ")}
+            Nutzt Tools: {activeTools.join(", ")}
           </div>
         )}
         <div ref={bottomRef} />
       </div>
-      <ChatInput onSend={handleSend} disabled={sending} sending={sending || streaming} />
+      <ChatInput
+        onSend={handleSend}
+        onAbort={handleAbort}
+        disabled={sending && !streaming}
+        sending={sending || streaming}
+        models={models}
+        selectedModel={selectedModel}
+        onModelChange={setSelectedModel}
+      />
     </div>
   );
 }

@@ -59,4 +59,5 @@ class ChatMessage(Base):
     tool_calls: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     tool_results: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     state_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

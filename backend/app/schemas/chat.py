@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 class ChatMessageCreate(BaseModel):
     content: str
+    model: str | None = None
 
 
 class ChatMessageResponse(BaseModel):
@@ -19,4 +20,5 @@ class ChatMessageResponse(BaseModel):
     tool_calls: dict | None
     tool_results: dict | None
     state_version: int | None
+    model: str | None
     created_at: datetime

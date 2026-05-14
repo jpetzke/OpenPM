@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 from openai import AsyncOpenAI, RateLimitError
 
+from app.agent_config import AVAILABLE_MODELS
 from app.config import settings
 
 log = structlog.get_logger()
@@ -16,16 +17,23 @@ def _client() -> AsyncOpenAI:
     return AsyncOpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key)
 
 
-def _model_candidates() -> list[str]:
-    return settings.llm_model_candidates
+def _model_candidates(model_override: str | None = None) -> list[str]:
+    if model_override:
+        return [model_override]
+    return AVAILABLE_MODELS
 
 
-async def complete(messages: list[dict], tools: list[dict] | None = None, purpose: str = "general") -> Any:
+async def complete(
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    purpose: str = "general",
+    model_override: str | None = None,
+) -> Any:
     client = _client()
-    model_candidates = _model_candidates()
+    candidates = _model_candidates(model_override)
     last_exc: Exception | None = None
 
-    for index, model in enumerate(model_candidates):
+    for index, model in enumerate(candidates):
         kwargs: dict = {"model": model, "messages": messages}
         if tools:
             kwargs["tools"] = tools
@@ -37,21 +45,13 @@ async def complete(messages: list[dict], tools: list[dict] | None = None, purpos
             message_count=len(messages),
             tool_count=len(tools or []),
             attempt=index + 1,
-            candidate_count=len(model_candidates),
         )
         try:
             response = await client.chat.completions.create(**kwargs)
         except RateLimitError as exc:
             last_exc = exc
-            log.warning(
-                "llm_complete_rate_limited",
-                purpose=purpose,
-                model=model,
-                attempt=index + 1,
-                candidate_count=len(model_candidates),
-                error=str(exc),
-            )
-            if index < len(model_candidates) - 1:
+            log.warning("llm_complete_rate_limited", purpose=purpose, model=model, attempt=index + 1, error=str(exc))
+            if index < len(candidates) - 1:
                 continue
             raise
         except Exception as exc:
@@ -71,12 +71,17 @@ async def complete(messages: list[dict], tools: list[dict] | None = None, purpos
     raise RuntimeError("No LLM model candidates configured")
 
 
-async def stream(messages: list[dict], tools: list[dict] | None = None, purpose: str = "general") -> AsyncGenerator[str, None]:
+async def stream(
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    purpose: str = "general",
+    model_override: str | None = None,
+) -> AsyncGenerator[str, None]:
     client = _client()
-    model_candidates = _model_candidates()
+    candidates = _model_candidates(model_override)
     last_exc: Exception | None = None
 
-    for index, model in enumerate(model_candidates):
+    for index, model in enumerate(candidates):
         kwargs: dict = {"model": model, "messages": messages, "stream": True}
         if tools:
             kwargs["tools"] = tools
@@ -84,15 +89,7 @@ async def stream(messages: list[dict], tools: list[dict] | None = None, purpose:
         chunk_count = 0
         total_chars = 0
         yielded_any = False
-        log.info(
-            "llm_stream_started",
-            purpose=purpose,
-            model=model,
-            message_count=len(messages),
-            tool_count=len(tools or []),
-            attempt=index + 1,
-            candidate_count=len(model_candidates),
-        )
+        log.info("llm_stream_started", purpose=purpose, model=model, message_count=len(messages), attempt=index + 1)
         try:
             async with client.chat.completions.stream(**kwargs) as s:
                 async for chunk in s:
@@ -113,20 +110,99 @@ async def stream(messages: list[dict], tools: list[dict] | None = None, purpose:
             return
         except RateLimitError as exc:
             last_exc = exc
-            log.warning(
-                "llm_stream_rate_limited",
-                purpose=purpose,
-                model=model,
-                attempt=index + 1,
-                candidate_count=len(model_candidates),
-                yielded_any=yielded_any,
-                error=str(exc),
-            )
-            if yielded_any or index == len(model_candidates) - 1:
+            log.warning("llm_stream_rate_limited", purpose=purpose, model=model, attempt=index + 1, error=str(exc))
+            if yielded_any or index == len(candidates) - 1:
                 raise
             continue
         except Exception as exc:
             log.error("llm_stream_failed", purpose=purpose, model=model, error=str(exc))
+            raise
+
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("No LLM model candidates configured")
+
+
+async def agent_round(
+    messages: list[dict],
+    tools: list[dict] | None = None,
+    purpose: str = "agent_round",
+    model_override: str | None = None,
+) -> AsyncGenerator[dict, None]:
+    """
+    Streams one agent round with tool-call detection.
+
+    Yields:
+      {"type": "content_delta", "delta": str}   — text chunk for the user
+      {"type": "tool_calls", "calls": [...]}     — after stream ends, if tools were invoked
+
+    Calls structure: [{"id": str, "name": str, "arguments": str}, ...]
+    """
+    client = _client()
+    candidates = _model_candidates(model_override)
+    last_exc: Exception | None = None
+
+    for index, model in enumerate(candidates):
+        kwargs: dict = {"model": model, "messages": messages, "stream": True}
+        if tools:
+            kwargs["tools"] = tools
+
+        accumulated_tool_calls: dict[int, dict] = {}
+        has_tool_calls = False
+        has_content = False
+        yielded_any = False
+        started = time.perf_counter()
+
+        log.info("llm_agent_round_started", purpose=purpose, model=model, attempt=index + 1)
+
+        try:
+            async with client.chat.completions.stream(**kwargs) as s:
+                async for chunk in s:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+
+                    if delta.content:
+                        has_content = True
+                        yielded_any = True
+                        yield {"type": "content_delta", "delta": delta.content}
+
+                    if delta.tool_calls:
+                        has_tool_calls = True
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in accumulated_tool_calls:
+                                accumulated_tool_calls[idx] = {"id": "", "name": "", "arguments": ""}
+                            if tc.id:
+                                accumulated_tool_calls[idx]["id"] = tc.id
+                            if tc.function:
+                                if tc.function.name:
+                                    accumulated_tool_calls[idx]["name"] += tc.function.name
+                                if tc.function.arguments:
+                                    accumulated_tool_calls[idx]["arguments"] += tc.function.arguments
+
+            if has_tool_calls:
+                calls = [accumulated_tool_calls[i] for i in sorted(accumulated_tool_calls)]
+                yield {"type": "tool_calls", "calls": calls}
+
+            log.info(
+                "llm_agent_round_finished",
+                purpose=purpose,
+                model=model,
+                duration_ms=round((time.perf_counter() - started) * 1000, 2),
+                has_tool_calls=has_tool_calls,
+                has_content=has_content,
+            )
+            return
+
+        except RateLimitError as exc:
+            last_exc = exc
+            log.warning("llm_agent_round_rate_limited", purpose=purpose, model=model, attempt=index + 1, error=str(exc))
+            if yielded_any or model_override or index == len(candidates) - 1:
+                raise
+            continue
+        except Exception as exc:
+            log.error("llm_agent_round_failed", purpose=purpose, model=model, error=str(exc))
             raise
 
     if last_exc is not None:
