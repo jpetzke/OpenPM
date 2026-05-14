@@ -70,5 +70,5 @@ export function useProjectSSE(projectId: string) {
     return () => {
       ctrl.abort();
     };
-  }, [projectId, token]);
+  }, [projectId, token, qc, setPipelineStatus]);
 }

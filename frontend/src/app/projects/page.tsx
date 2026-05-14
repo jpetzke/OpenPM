@@ -22,14 +22,10 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: "", client_name: "" });
 
-  if (!token) {
-    router.push("/login");
-    return null;
-  }
-
   const { data: projects, isLoading } = useQuery<Project[]>({
     queryKey: ["projects"],
     queryFn: () => api.get<Project[]>("/api/projects"),
+    enabled: !!token,
   });
 
   const createMutation = useMutation({
@@ -43,6 +39,11 @@ export default function ProjectsPage() {
     },
     onError: () => toast.error("Projekt konnte nicht erstellt werden"),
   });
+
+  if (!token) {
+    router.push("/login");
+    return null;
+  }
 
   if (isLoading) {
     return (

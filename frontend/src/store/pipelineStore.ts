@@ -13,6 +13,7 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
     set((s) => ({ pipelines: { ...s.pipelines, [documentId]: status } })),
   clearPipeline: (documentId) =>
     set((s) => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [documentId]: _, ...rest } = s.pipelines;
       return { pipelines: rest };
     }),
