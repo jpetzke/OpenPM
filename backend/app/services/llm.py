@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 from openai import AsyncOpenAI, RateLimitError
 
+from app.agent_config import AVAILABLE_MODELS
 from app.config import settings
 
 log = structlog.get_logger()
@@ -19,7 +20,7 @@ def _client() -> AsyncOpenAI:
 def _model_candidates(model_override: str | None = None) -> list[str]:
     if model_override:
         return [model_override]
-    return settings.llm_model_candidates
+    return AVAILABLE_MODELS
 
 
 async def complete(
