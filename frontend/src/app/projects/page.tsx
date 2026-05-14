@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, startTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
@@ -21,6 +21,7 @@ export default function ProjectsPage() {
   const hasHydrated = useAuthStore((s) => s.hasHydrated);
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
+  const [redirectingProjectId, setRedirectingProjectId] = useState<string | null>(null);
   const [form, setForm] = useState({ name: "", client_name: "" });
 
   const { data: projects, isLoading } = useQuery<Project[]>({
@@ -33,10 +34,11 @@ export default function ProjectsPage() {
     mutationFn: (data: { name: string; client_name: string }) =>
       api.post<Project>("/api/projects", data),
     onSuccess: (project) => {
-      qc.invalidateQueries({ queryKey: ["projects"] });
-      setCreating(false);
-      setForm({ name: "", client_name: "" });
-      router.push(`/projects/${project.id}/upload`);
+      setRedirectingProjectId(project.id);
+      startTransition(() => {
+        router.replace(`/projects/${project.id}/upload`);
+      });
+      void qc.invalidateQueries({ queryKey: ["projects"] });
     },
     onError: () => toast.error("Projekt konnte nicht erstellt werden"),
   });
@@ -47,13 +49,20 @@ export default function ProjectsPage() {
 
   if (!hasHydrated || !token) return null;
 
-  if (isLoading) {
+  if (isLoading || redirectingProjectId) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg-base)" }}>
-        <div
-          className="w-4 h-4 rounded-full border-2 animate-spin"
-          style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
-        />
+        <div className="flex flex-col items-center gap-3">
+          <div
+            className="w-4 h-4 rounded-full border-2 animate-spin"
+            style={{ borderColor: "var(--accent)", borderTopColor: "transparent" }}
+          />
+          {redirectingProjectId && (
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Projekt wird geoeffnet…
+            </p>
+          )}
+        </div>
       </div>
     );
   }

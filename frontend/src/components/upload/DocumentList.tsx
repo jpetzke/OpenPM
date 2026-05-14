@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { usePipelineStore } from "@/store/pipelineStore";
 import { formatDate, formatBytes, formatRelativeTime } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Document, DocumentStatus, PipelineLogEntry } from "@/types/document";
 
 interface DocumentListProps {
@@ -161,8 +162,8 @@ function DocumentDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(96vw,72rem)] max-w-[72rem] p-0 overflow-hidden" showCloseButton>
-        <div className="flex max-h-[85vh] flex-col" style={{ background: "var(--bg-surface)" }}>
+      <DialogContent className="h-[min(92vh,58rem)] w-[min(96vw,92rem)] max-w-[92rem] p-0 overflow-hidden" showCloseButton>
+        <div className="flex h-full min-h-0 flex-col" style={{ background: "var(--bg-surface)" }}>
           <DialogHeader className="shrink-0 px-6 pt-6">
             <DialogTitle>{document.original_filename}</DialogTitle>
             <DialogDescription>
@@ -198,46 +199,58 @@ function DocumentDetailDialog({
             </div>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
-            <div className="min-w-0 overflow-y-auto px-6 py-4 lg:border-r" style={{ borderColor: "var(--border)" }}>
-              <p className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-muted)" }}>Summary</p>
-              <p className="text-sm whitespace-pre-wrap" style={{ color: "var(--text-primary)" }}>
-                {document.summary || "Noch keine Summary verfügbar."}
-              </p>
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.95fr)]">
+            <ScrollArea className="min-h-0 min-w-0 xl:border-r" style={{ borderColor: "var(--border)" }}>
+              <div className="space-y-6 px-6 py-5">
+                <section>
+                  <p className="mb-2 text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Summary</p>
+                  <div className="rounded-xl p-4" style={{ background: "var(--bg-elevated)" }}>
+                    <p className="text-sm whitespace-pre-wrap leading-6" style={{ color: "var(--text-primary)" }}>
+                      {document.summary || "Noch keine Summary verfügbar."}
+                    </p>
+                  </div>
+                </section>
 
-              <p className="text-xs uppercase tracking-widest mt-6 mb-2" style={{ color: "var(--text-muted)" }}>Raw Text</p>
-              <div
-                className="rounded-md p-3 max-h-72 overflow-y-auto text-xs whitespace-pre-wrap"
-                style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)" }}
-              >
-                {document.raw_content || "Noch kein extrahierter Text verfügbar."}
+                <section className="min-h-0">
+                  <p className="mb-2 text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Raw Text</p>
+                  <div
+                    className="rounded-xl p-4 text-xs whitespace-pre-wrap leading-6"
+                    style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)" }}
+                  >
+                    {document.raw_content || "Noch kein extrahierter Text verfügbar."}
+                  </div>
+                </section>
               </div>
-            </div>
+            </ScrollArea>
 
-            <div className="min-w-0 overflow-y-auto border-t px-6 py-4 lg:border-t-0" style={{ borderColor: "var(--border)" }}>
-              <p className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-muted)" }}>Logs</p>
-              <div className="space-y-2">
-                {mergedLogs.length === 0 ? (
-                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>Noch keine Logs.</p>
-                ) : (
-                  mergedLogs.map((entry, index) => (
-                    <div key={`${entry.timestamp}-${index}`} className="rounded-md p-3" style={{ background: "var(--bg-elevated)" }}>
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm" style={{ color: "var(--text-primary)" }}>{entry.label}</p>
-                        <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-                          {entry.status}
-                        </span>
+            <div className="min-h-0 min-w-0 border-t xl:border-t-0" style={{ borderColor: "var(--border)" }}>
+              <div className="shrink-0 px-6 py-5">
+                <p className="text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Logs</p>
+              </div>
+              <ScrollArea className="h-[min(42rem,calc(92vh-13rem))] min-h-0 min-w-0 xl:h-full">
+                <div className="space-y-3 px-6 pb-6">
+                  {mergedLogs.length === 0 ? (
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>Noch keine Logs.</p>
+                  ) : (
+                    mergedLogs.map((entry, index) => (
+                      <div key={`${entry.timestamp}-${index}`} className="rounded-xl p-4" style={{ background: "var(--bg-elevated)" }}>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm" style={{ color: "var(--text-primary)" }}>{entry.label}</p>
+                          <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                            {entry.status}
+                          </span>
+                        </div>
+                        {entry.detail && (
+                          <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{entry.detail}</p>
+                        )}
+                        <p className="text-[11px] mt-2" style={{ color: "var(--text-muted)" }}>
+                          Step {entry.step ?? "-"} / {entry.total} · {formatRelativeTime(entry.timestamp)}
+                        </p>
                       </div>
-                      {entry.detail && (
-                        <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{entry.detail}</p>
-                      )}
-                      <p className="text-[11px] mt-2" style={{ color: "var(--text-muted)" }}>
-                        Step {entry.step ?? "-"} / {entry.total} · {formatRelativeTime(entry.timestamp)}
-                      </p>
-                    </div>
-                  ))
-                )}
-              </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
             </div>
           </div>
         </div>
