@@ -26,18 +26,22 @@ async def _enqueue_pipeline(document_id: str) -> None:
 
 
 async def _schedule_batch(project_id: str, doc_id: str) -> None:
-    """Add a document to the project's pending batch and schedule processing after a 10-second window.
+    """Add a document to the project's pending batch, resetting the 10-second processing window.
 
-    If another upload for the same project already scheduled a batch job within the last 10 seconds,
-    the new document is simply appended to the shared pending set and will be included automatically.
+    Every upload refreshes the 'process after' timestamp, so the batch job only fires
+    10 seconds after the *last* upload in the window. Each upload enqueues its own
+    deferred ARQ job; jobs that arrive before the window closes exit immediately.
     """
+    import time
     from arq import create_pool
     from arq.connections import RedisSettings
     redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
     await redis.sadd(f"pending_batch:{project_id}", doc_id)
-    lock_acquired = await redis.set(f"batch_lock:{project_id}", "1", ex=10, nx=True)
-    if lock_acquired:
-        await redis.enqueue_job("process_project_batch", project_id, _defer_by=10)
+    # Always overwrite the trigger timestamp — this is what resets the clock
+    trigger_at = time.time() + 10
+    await redis.set(f"batch_trigger:{project_id}", str(trigger_at), ex=30)
+    # Each upload schedules its own check job; most will exit early
+    await redis.enqueue_job("process_project_batch", project_id, _defer_by=11)
     await redis.aclose()
 
 

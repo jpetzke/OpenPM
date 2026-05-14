@@ -89,10 +89,23 @@ async def process_document(ctx: dict, document_id: str) -> None:
 
 
 async def process_project_batch(ctx: dict, project_id: str) -> None:
-    """Process all documents queued in the pending batch for a project as one state update."""
+    """Process all documents queued in the pending batch for a project as one state update.
+
+    Each upload enqueues its own deferred job and refreshes the trigger timestamp.
+    Jobs that arrive while more uploads are expected exit early — only the job that
+    runs after the 10-second idle window actually processes the batch.
+    """
+    import time as _time
     redis = ctx["redis"]
     channel = f"pipeline:{project_id}"
     project_uuid = uuid.UUID(project_id)
+
+    # Exit early if another upload extended the window after this job was scheduled
+    raw_trigger = await redis.get(f"batch_trigger:{project_id}")
+    if raw_trigger:
+        trigger_at = float(raw_trigger.decode() if isinstance(raw_trigger, bytes) else raw_trigger)
+        if _time.time() < trigger_at:
+            return
 
     batch_key = f"pending_batch:{project_id}"
     # Atomically hand off the pending set to a private key so uploads during
