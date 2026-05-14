@@ -44,9 +44,10 @@ function ScrollBar({
       )}
       {...props}
     >
+      <div className="absolute inset-[4px] rounded-full bg-[color:var(--bg-elevated)]/90" />
       <ScrollAreaPrimitive.Thumb
         data-slot="scroll-area-thumb"
-        className="relative flex-1 rounded-full bg-[var(--border-strong)]"
+        className="relative z-10 flex-1 rounded-full bg-[var(--text-muted)] opacity-90"
       />
     </ScrollAreaPrimitive.Scrollbar>
   )

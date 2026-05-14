@@ -7,11 +7,104 @@ import { api } from "@/lib/api";
 import { usePipelineStore } from "@/store/pipelineStore";
 import { formatDate, formatBytes, formatRelativeTime } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import type { Document, DocumentStatus, PipelineLogEntry } from "@/types/document";
 
 interface DocumentListProps {
   projectId: string;
+}
+
+const PIPELINE_LABELS: Record<string, string> = {
+  queued: "Warteschlange",
+  parsing: "Dokument extrahieren",
+  document_insights: "Summary speichern",
+  state_load: "Projekt-State laden",
+  state_extraction: "State extrahieren",
+  state_merge: "State zusammenfuehren",
+  state_persist: "State speichern",
+  changelog: "Changelog schreiben",
+  git_commit: "Git sichern",
+  embeddings: "Embeddings erzeugen",
+  briefing: "Briefing aktualisieren",
+  complete: "Abgeschlossen",
+};
+
+const PIPELINE_STATUS_LABELS: Record<PipelineLogEntry["status"], string> = {
+  running: "Laeuft",
+  done: "Fertig",
+  failed: "Fehler",
+  info: "Info",
+};
+
+function formatPipelineLabel(label: string | null | undefined): string {
+  if (!label) return "Noch keine Aktivitaet";
+  return PIPELINE_LABELS[label] ?? label.replaceAll("_", " ");
+}
+
+function pipelineStatusColor(status: PipelineLogEntry["status"] | string | null | undefined): string {
+  if (status === "done") return "var(--success)";
+  if (status === "failed") return "var(--danger)";
+  if (status === "running") return "var(--accent)";
+  return "var(--text-muted)";
+}
+
+interface PipelineLogGroup {
+  key: string;
+  step: number | null;
+  total: number;
+  label: string;
+  status: PipelineLogEntry["status"];
+  timestamp: string;
+  detailLines: string[];
+}
+
+function getGroupedPipelineLogs(entries: PipelineLogEntry[]): PipelineLogGroup[] {
+  if (entries.length === 0) return [];
+
+  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+  const maxStep = sorted.reduce((currentMax, entry) => Math.max(currentMax, entry.step ?? 0), 0);
+  const groups = new Map<string, PipelineLogEntry[]>();
+
+  for (const entry of sorted) {
+    const key = `${entry.step ?? "na"}:${entry.label}`;
+    const group = groups.get(key) ?? [];
+    group.push(entry);
+    groups.set(key, group);
+  }
+
+  return Array.from(groups.entries())
+    .map(([key, groupEntries]) => {
+      const latest = groupEntries[groupEntries.length - 1];
+      const status =
+        latest.label === "queued" && maxStep > 1 && latest.status === "running"
+          ? "done"
+          : latest.status;
+      const detailsForStatus =
+        status === "running"
+          ? groupEntries
+          : groupEntries.filter((entry) => entry.status === latest.status);
+      const detailLines = Array.from(
+        new Set(
+          detailsForStatus
+            .map((entry) => entry.detail?.trim())
+            .filter((detail): detail is string => Boolean(detail))
+        )
+      );
+
+      return {
+        key,
+        step: latest.step ?? null,
+        total: latest.total,
+        label: latest.label,
+        status,
+        timestamp: latest.timestamp,
+        detailLines,
+      };
+    })
+    .sort((a, b) => {
+      const stepDelta = (a.step ?? 999) - (b.step ?? 999);
+      if (stepDelta !== 0) return stepDelta;
+      return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+    });
 }
 
 function StatusIcon({ status }: { status: DocumentStatus }) {
@@ -151,11 +244,10 @@ function DocumentDetailDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const mergedLogs = useMemo(() => {
+  const groupedLogs = useMemo(() => {
     const persisted = document?.pipeline_logs ?? [];
     const ephemeral = liveDetail?.logs ?? [];
-    const all = [...persisted, ...ephemeral];
-    return all.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return getGroupedPipelineLogs([...persisted, ...ephemeral]);
   }, [document?.pipeline_logs, liveDetail?.logs]);
 
   if (!document) return null;
@@ -179,7 +271,7 @@ function DocumentDetailDialog({
               <div className="min-w-0">
                 <p className="text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Pipeline</p>
                 <p className="text-sm" style={{ color: "var(--text-primary)" }}>
-                  {liveDetail?.label ?? document.pipeline_step_label ?? "Noch keine Aktivität"}
+                  {formatPipelineLabel(liveDetail?.label ?? document.pipeline_step_label)}
                 </p>
                 {(liveDetail?.detail ?? document.processing_error) && (
                   <p className="mt-1 text-xs break-words" style={{ color: "var(--text-muted)" }}>
@@ -203,8 +295,11 @@ function DocumentDetailDialog({
           </div>
 
           <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1.25fr)_minmax(24rem,0.95fr)]">
-            <ScrollArea className="min-h-0 min-w-0 lg:border-r" style={{ borderColor: "var(--border)" }}>
-              <div className="space-y-6 px-6 py-5">
+            <div
+              className="app-scrollable min-h-0 min-w-0 overflow-y-auto lg:border-r"
+              style={{ borderColor: "var(--border)" }}
+            >
+              <div className="space-y-6 px-6 py-5 pr-8">
                 <section>
                   <p className="mb-2 text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Summary</p>
                   <div className="rounded-xl p-4" style={{ background: "var(--bg-elevated)" }}>
@@ -224,36 +319,53 @@ function DocumentDetailDialog({
                   </div>
                 </section>
               </div>
-            </ScrollArea>
+            </div>
 
-            <div className="min-h-0 min-w-0 border-t lg:border-t-0" style={{ borderColor: "var(--border)" }}>
+            <div className="flex min-h-0 min-w-0 flex-col border-t lg:border-t-0" style={{ borderColor: "var(--border)" }}>
               <div className="shrink-0 px-6 py-5">
-                <p className="text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Logs</p>
+                <p className="text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Pipeline-Verlauf</p>
               </div>
-              <ScrollArea className="h-[min(42rem,calc(92vh-13rem))] min-h-0 min-w-0 lg:h-full">
-                <div className="space-y-3 px-6 pb-6">
-                  {mergedLogs.length === 0 ? (
+              <div className="app-scrollable min-h-0 min-w-0 flex-1 overflow-y-auto">
+                <div className="space-y-3 px-6 pb-10 pr-8">
+                  {groupedLogs.length === 0 ? (
                     <p className="text-xs" style={{ color: "var(--text-muted)" }}>Noch keine Logs.</p>
                   ) : (
-                    mergedLogs.map((entry, index) => (
-                      <div key={`${entry.timestamp}-${index}`} className="rounded-xl p-4" style={{ background: "var(--bg-elevated)" }}>
+                    groupedLogs.map((entry) => (
+                      <div key={entry.key} className="rounded-xl p-4" style={{ background: "var(--bg-elevated)" }}>
                         <div className="flex items-center justify-between gap-3">
-                          <p className="text-sm" style={{ color: "var(--text-primary)" }}>{entry.label}</p>
-                          <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-                            {entry.status}
+                          <div className="min-w-0">
+                            <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+                              {formatPipelineLabel(entry.label)}
+                            </p>
+                            <p className="mt-1 text-[11px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                              Schritt {entry.step ?? "-"} von {entry.total}
+                            </p>
+                          </div>
+                          <span
+                            className="rounded-full px-2.5 py-1 text-[10px] uppercase tracking-widest"
+                            style={{
+                              color: pipelineStatusColor(entry.status),
+                              background: `${pipelineStatusColor(entry.status)}18`,
+                            }}
+                          >
+                            {PIPELINE_STATUS_LABELS[entry.status]}
                           </span>
                         </div>
-                        {entry.detail && (
-                          <p className="mt-1 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>{entry.detail}</p>
-                        )}
+                        <div className="mt-3 space-y-1.5">
+                          {entry.detailLines.map((detail) => (
+                            <p key={detail} className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>
+                              {detail}
+                            </p>
+                          ))}
+                        </div>
                         <p className="text-[11px] mt-2" style={{ color: "var(--text-muted)" }}>
-                          Step {entry.step ?? "-"} / {entry.total} · {formatRelativeTime(entry.timestamp)}
+                          {formatRelativeTime(entry.timestamp)}
                         </p>
                       </div>
                     ))
                   )}
                 </div>
-              </ScrollArea>
+              </div>
             </div>
           </div>
         </div>

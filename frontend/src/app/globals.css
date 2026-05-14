@@ -102,6 +102,31 @@ body::-webkit-scrollbar-thumb {
   background-clip: padding-box;
 }
 
+.app-scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: #5b5b68 rgba(255, 255, 255, 0.04);
+}
+
+.app-scrollable::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.app-scrollable::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 999px;
+}
+
+.app-scrollable::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #5b5b68, #717182);
+  border: 2px solid rgba(17, 17, 19, 0.88);
+  border-radius: 999px;
+}
+
+.app-scrollable::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #737386, #8b8ba0);
+}
+
 .transition-default {
   transition: all 150ms ease;
 }
