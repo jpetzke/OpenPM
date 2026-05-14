@@ -8,6 +8,7 @@ import { usePipelineStore } from "@/store/pipelineStore";
 export function useProjectSSE(projectId: string) {
   const token = useAuthStore((s) => s.token);
   const setPipelineStatus = usePipelineStore((s) => s.setPipelineStatus);
+  const pushPipelineEvent = usePipelineStore((s) => s.pushPipelineEvent);
   const qc = useQueryClient();
   const abortRef = useRef<AbortController | null>(null);
 
@@ -42,15 +43,29 @@ export function useProjectSSE(projectId: string) {
               switch (data.event) {
                 case "pipeline_started":
                   setPipelineStatus(data.document_id, "processing");
+                  pushPipelineEvent(data.document_id, {
+                    step: data.step ?? 1,
+                    total: data.total ?? 10,
+                    label: data.label ?? "queued",
+                    status: "running",
+                    detail: "Dokumentverarbeitung gestartet",
+                    timestamp: data.timestamp ?? new Date().toISOString(),
+                  });
+                  qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
+                  break;
+                case "pipeline_progress":
+                  pushPipelineEvent(data.document_id, data);
                   qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
                   break;
                 case "pipeline_complete":
                   setPipelineStatus(data.document_id, "done");
+                  pushPipelineEvent(data.document_id, data);
                   qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
                   qc.invalidateQueries({ queryKey: ["projects", projectId, "state"] });
                   break;
                 case "pipeline_failed":
                   setPipelineStatus(data.document_id, "failed");
+                  pushPipelineEvent(data.document_id, data);
                   qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
                   toast.error(`Verarbeitung fehlgeschlagen: ${data.error || "Unbekannter Fehler"}`);
                   break;
@@ -70,5 +85,5 @@ export function useProjectSSE(projectId: string) {
     return () => {
       ctrl.abort();
     };
-  }, [projectId, token, qc, setPipelineStatus]);
+  }, [projectId, token, qc, setPipelineStatus, pushPipelineEvent]);
 }

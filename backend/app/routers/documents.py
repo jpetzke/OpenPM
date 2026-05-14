@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
@@ -55,6 +56,10 @@ async def upload_document(
         original_path=original_path,
         mime_type=mime_type,
         file_size=len(file_bytes),
+        pipeline_logs=[],
+        pipeline_step=0,
+        pipeline_step_label="pending",
+        pipeline_updated_at=datetime.now(timezone.utc),
         uploaded_by=current_user.id,
     )
     db.add(doc)
@@ -92,6 +97,10 @@ async def create_text_document(
         original_path=original_path,
         mime_type="text/plain",
         file_size=len(content_bytes),
+        pipeline_logs=[],
+        pipeline_step=0,
+        pipeline_step_label="pending",
+        pipeline_updated_at=datetime.now(timezone.utc),
         uploaded_by=current_user.id,
     )
     db.add(doc)
@@ -159,6 +168,11 @@ async def reprocess_document(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Document not in reprocessable state")
     doc.processing_status = "pending"
     doc.processing_error = None
+    doc.summary = None
+    doc.pipeline_logs = []
+    doc.pipeline_step = 0
+    doc.pipeline_step_label = "pending"
+    doc.pipeline_updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(doc)
     await _enqueue_pipeline(str(doc.id))

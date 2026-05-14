@@ -115,3 +115,50 @@ def test_custom_shallow_merge():
     result = merge_state(current, delta)
     assert result["custom"]["foo"] == "bar"
     assert result["custom"]["baz"] == "qux"
+
+
+def test_dynamic_sections_are_added_and_reused():
+    current = {
+        "core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []},
+        "dynamic_sections": [
+            {
+                "id": "sec-1",
+                "title": "Risiken",
+                "kind": "risks",
+                "items": [{"id": "item-1", "title": "Budget", "summary": "Knapp", "status": "open"}],
+            }
+        ],
+        "custom": {},
+    }
+    delta = {
+        "core": {},
+        "dynamic_sections": [
+            {
+                "title": "Risiken",
+                "kind": "risks",
+                "items": [{"title": "Timeline", "summary": "Abhaengig von Freigabe", "status": "open"}],
+            }
+        ],
+        "custom": {},
+        "resolved_task_ids": [],
+        "removed_blocker_ids": [],
+    }
+    result = merge_state(current, delta)
+    assert len(result["dynamic_sections"]) == 1
+    assert len(result["dynamic_sections"][0]["items"]) == 2
+
+
+def test_compute_delta_tracks_dynamic_section_changes():
+    old = {
+        "core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []},
+        "dynamic_sections": [],
+        "custom": {},
+    }
+    new = {
+        "core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []},
+        "dynamic_sections": [{"id": "sec-1", "title": "Deliverables", "kind": "deliverables", "items": []}],
+        "custom": {},
+    }
+    delta = compute_delta(old, new)
+    assert "dynamic_sections" in delta["added"]
+    assert delta["added"]["dynamic_sections"][0]["title"] == "Deliverables"

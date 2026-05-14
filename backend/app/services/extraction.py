@@ -2,9 +2,14 @@ from __future__ import annotations
 
 import json
 import re
+import time
+
+import structlog
 
 from app.config import settings
 from app.services import llm as llm_service
+
+log = structlog.get_logger()
 
 _EXTRACTION_SYSTEM = """Du bist ein präziser Datenextraktor. Extrahiere ausschließlich Informationen
 die sich direkt aus dem Dokument ableiten lassen. Erfinde nichts.
@@ -29,10 +34,21 @@ Format:
     "decisions":  [],
     "blockers":   []
   }},
+  "dynamic_sections": [
+    {{
+      "title": "string",
+      "kind": "notes|risks|deliverables|questions|stakeholders|custom",
+      "items": [{{"title": "string", "summary": "string", "status": "open|done|info"}}],
+      "source_document_ids": []
+    }}
+  ],
   "custom": {{}},
   "resolved_task_ids":   [],
   "removed_blocker_ids": []
 }}"""
+
+_SUMMARY_SYSTEM = """Du erstellst kurze, präzise Dokumentzusammenfassungen für Projektarbeit.
+Antworte auf Deutsch, maximal 6 Sätze, mit Fokus auf wichtigste Inhalte, offene Punkte und Risiken."""
 
 
 def _clean_json(text: str) -> str:
@@ -43,6 +59,7 @@ def _clean_json(text: str) -> str:
 
 
 async def extract_state_delta(raw_content: str, current_state: dict | None) -> dict:
+    started = time.perf_counter()
     current_state_json = json.dumps(current_state, default=str) if current_state else "{}"
     messages = [
         {"role": "system", "content": _EXTRACTION_SYSTEM},
@@ -54,11 +71,22 @@ async def extract_state_delta(raw_content: str, current_state: dict | None) -> d
             ),
         },
     ]
-    response = await llm_service.complete(messages)
+    response = await llm_service.complete(messages, purpose="document_state_extraction")
     content = response.choices[0].message.content or "{}"
     try:
-        return json.loads(_clean_json(content))
+        parsed = json.loads(_clean_json(content))
+        log.info(
+            "state_extraction_parsed",
+            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            core_keys=sorted((parsed.get("core") or {}).keys()),
+            dynamic_sections=len(parsed.get("dynamic_sections") or []),
+        )
+        return parsed
     except json.JSONDecodeError:
+        log.warning(
+            "state_extraction_invalid_json",
+            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+        )
         return {"core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []}, "custom": {}}
 
 
@@ -88,6 +116,21 @@ async def parse_document(file_bytes: bytes, mime_type: str) -> tuple[str, dict, 
         return raw_content, metadata, chunks
     except Exception as exc:
         raise RuntimeError(f"Document parsing failed: {exc}") from exc
+
+
+async def summarize_document(raw_content: str) -> str:
+    content = raw_content.strip()
+    if not content:
+        return ""
+
+    response = await llm_service.complete(
+        [
+            {"role": "system", "content": _SUMMARY_SYSTEM},
+            {"role": "user", "content": content[:12000]},
+        ],
+        purpose="document_summary",
+    )
+    return (response.choices[0].message.content or "").strip()
 
 
 def _simple_chunk(text: str, max_chars: int, overlap: int) -> list[str]:

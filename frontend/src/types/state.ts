@@ -7,27 +7,64 @@ export interface Task {
 }
 
 export interface Contact {
+  id?: string;
   name: string;
   role: string;
   email?: string;
 }
 
 export interface Blocker {
+  id?: string;
+  title?: string;
   description: string;
   severity: "high" | "medium" | "low";
   days_since?: number;
 }
 
 export interface Decision {
+  id?: string;
+  title?: string;
   date: string;
   description: string;
 }
 
-export interface StateData {
-  core?: { open_tasks?: Task[] };
+export interface Deadline {
+  id?: string;
+  title: string;
+  date: string;
+  description?: string;
+}
+
+export interface DynamicStateItem {
+  id: string;
+  title?: string;
+  label?: string;
+  summary?: string;
+  status?: "open" | "done" | "blocked" | "info";
+  date?: string;
+  [key: string]: unknown;
+}
+
+export interface DynamicSection {
+  id: string;
+  title: string;
+  kind: string;
+  items: DynamicStateItem[];
+  source_document_ids?: string[];
+}
+
+export interface StateCore {
   contacts?: Contact[];
-  blockers?: Blocker[];
+  open_tasks?: Task[];
+  deadlines?: Deadline[];
   decisions?: Decision[];
+  blockers?: Blocker[];
+}
+
+export interface StateData {
+  core?: StateCore;
+  dynamic_sections?: DynamicSection[];
+  custom?: Record<string, unknown>;
 }
 
 export interface ProjectState {

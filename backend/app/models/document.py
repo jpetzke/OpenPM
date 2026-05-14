@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,11 @@ class Document(Base):
     file_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     raw_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     doc_metadata: Mapped[dict | None] = mapped_column("metadata", JSONB, nullable=True)
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    pipeline_logs: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
+    pipeline_step: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    pipeline_step_label: Mapped[str | None] = mapped_column(String, nullable=True)
+    pipeline_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     processing_status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     git_commit_hash: Mapped[str | None] = mapped_column(String, nullable=True)

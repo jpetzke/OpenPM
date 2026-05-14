@@ -1,22 +1,49 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuthStore } from "@/store/authStore";
-
-interface StreamState {
-  streaming: boolean;
-  streamingText: string;
-}
+import type { ChatStreamState } from "@/types/chat";
 
 export function useChatStream(projectId: string) {
   const token = useAuthStore((s) => s.token);
-  const [state, setState] = useState<StreamState>({ streaming: false, streamingText: "" });
+  const [state, setState] = useState<ChatStreamState>({
+    streaming: false,
+    sending: false,
+    streamingText: "",
+    activeTools: [],
+  });
+  const queuedText = useRef("");
+  const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const pump = () => {
+      if (queuedText.current) {
+        const slice = queuedText.current.slice(0, 8);
+        queuedText.current = queuedText.current.slice(slice.length);
+        setState((prev) => ({
+          ...prev,
+          streaming: true,
+          sending: false,
+          streamingText: prev.streamingText + slice,
+        }));
+      }
+      rafRef.current = window.requestAnimationFrame(pump);
+    };
+    rafRef.current = window.requestAnimationFrame(pump);
+    return () => {
+      if (rafRef.current !== null) {
+        window.cancelAnimationFrame(rafRef.current);
+      }
+    };
+  }, []);
 
   const sendMessage = useCallback(
     async (
       content: string,
       onComplete: (assistantMessage: string) => void
     ) => {
-      setState({ streaming: true, streamingText: "" });
+      queuedText.current = "";
+      setState({ streaming: false, sending: true, streamingText: "", activeTools: [] });
+      let fullText = "";
       try {
         const res = await fetch(`/api/projects/${projectId}/chat`, {
           method: "POST",
@@ -27,13 +54,12 @@ export function useChatStream(projectId: string) {
           body: JSON.stringify({ content }),
         });
         if (!res.ok || !res.body) {
-          setState({ streaming: false, streamingText: "" });
+          setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
           return;
         }
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
-        let fullText = "";
 
         while (true) {
           const { done, value } = await reader.read();
@@ -46,15 +72,29 @@ export function useChatStream(projectId: string) {
             if (!line.startsWith("data: ")) continue;
             const raw = line.slice(6).trim();
             if (raw === "[DONE]") {
-              setState({ streaming: false, streamingText: "" });
+              setState((prev) => ({ ...prev, streaming: false, sending: false, activeTools: [] }));
               onComplete(fullText);
               return;
             }
             try {
               const data = JSON.parse(raw);
-              if (data.type === "content") {
-                fullText = data.text;
-                setState({ streaming: true, streamingText: fullText });
+              if (data.type === "message_start") {
+                setState((prev) => ({ ...prev, streaming: true, sending: false }));
+              }
+              if (data.type === "tool_call") {
+                setState((prev) => ({ ...prev, activeTools: data.tools ?? [] }));
+              }
+              if (data.type === "content_delta") {
+                const delta = data.delta ?? "";
+                fullText += delta;
+                queuedText.current += delta;
+                setState((prev) => ({ ...prev, streaming: true, sending: false }));
+              }
+              if (data.type === "message_end") {
+                setState((prev) => ({ ...prev, activeTools: [] }));
+              }
+              if (data.type === "error") {
+                setState((prev) => ({ ...prev, streaming: false, sending: false, activeTools: [] }));
               }
             } catch {
               // ignore parse errors
@@ -64,7 +104,7 @@ export function useChatStream(projectId: string) {
       } catch {
         // network error — fail silently
       }
-      setState({ streaming: false, streamingText: "" });
+      setState((prev) => ({ ...prev, streaming: false, sending: false, activeTools: [] }));
     },
     [projectId, token]
   );

@@ -1,13 +1,14 @@
 "use client";
 import { useRef, useCallback } from "react";
-import { Send } from "lucide-react";
+import { Loader2, Send } from "lucide-react";
 
 interface ChatInputProps {
   onSend: (message: string) => void;
   disabled: boolean;
+  sending?: boolean;
 }
 
-export function ChatInput({ onSend, disabled }: ChatInputProps) {
+export function ChatInput({ onSend, disabled, sending = false }: ChatInputProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   const submit = useCallback(() => {
@@ -47,7 +48,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
         rows={1}
         onKeyDown={onKeyDown}
         onChange={onInput}
-        disabled={disabled}
+        disabled={false}
         placeholder="Frage stellen..."
         className="flex-1 resize-none outline-none text-sm py-2 px-3 rounded-md"
         style={{
@@ -65,7 +66,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
         title="Senden (⌘↵)"
         aria-label="Senden"
       >
-        <Send size={14} />
+        {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
       </button>
     </div>
   );

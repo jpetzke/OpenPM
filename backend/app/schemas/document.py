@@ -13,6 +13,13 @@ class DocumentResponse(BaseModel):
     original_path: str
     mime_type: str
     file_size: int
+    raw_content: str | None
+    doc_metadata: dict | None
+    summary: str | None
+    pipeline_logs: list[dict] | None
+    pipeline_step: int | None
+    pipeline_step_label: str | None
+    pipeline_updated_at: datetime | None
     processing_status: str
     processing_error: str | None
     git_commit_hash: str | None

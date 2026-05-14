@@ -2,7 +2,7 @@ import { TaskCard } from "./TaskCard";
 import { ContactCard } from "./ContactCard";
 import { BlockerCard } from "./BlockerCard";
 import { DecisionCard } from "./DecisionCard";
-import type { StateData } from "@/types/state";
+import type { DynamicSection, StateData } from "@/types/state";
 
 interface StateGridProps {
   state: StateData;
@@ -34,9 +34,11 @@ function GridSection({ title, count, children }: { title: string; count: number;
 export function StateGrid({ state, projectId }: StateGridProps) {
   const tasks = state.core?.open_tasks ?? [];
   const openTasks = tasks.filter((t) => t.status !== "done");
-  const contacts = state.contacts ?? [];
-  const blockers = state.blockers ?? [];
-  const decisions = state.decisions ?? [];
+  const contacts = state.core?.contacts ?? [];
+  const blockers = state.core?.blockers ?? [];
+  const decisions = state.core?.decisions ?? [];
+  const deadlines = state.core?.deadlines ?? [];
+  const dynamicSections = state.dynamic_sections ?? [];
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -71,6 +73,53 @@ export function StateGrid({ state, projectId }: StateGridProps) {
           decisions.map((d, i) => <DecisionCard key={i} decision={d} />)
         )}
       </GridSection>
+
+      <GridSection title="Deadlines" count={deadlines.length}>
+        {deadlines.length === 0 ? (
+          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Keine Deadlines</p>
+        ) : (
+          deadlines.map((d, i) => (
+            <div key={d.id ?? i} className="py-2 border-b last:border-b-0" style={{ borderColor: "var(--border)" }}>
+              <p className="text-sm" style={{ color: "var(--text-primary)" }}>{d.title}</p>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{d.date}</p>
+            </div>
+          ))
+        )}
+      </GridSection>
+
+      {dynamicSections.map((section) => (
+        <DynamicSectionCard key={section.id} section={section} />
+      ))}
     </div>
+  );
+}
+
+function DynamicSectionCard({ section }: { section: DynamicSection }) {
+  return (
+    <GridSection title={section.title} count={section.items.length}>
+      {section.items.length === 0 ? (
+        <p className="text-xs" style={{ color: "var(--text-muted)" }}>Keine Einträge</p>
+      ) : (
+        section.items.map((item) => (
+          <div key={item.id} className="py-2 border-b last:border-b-0" style={{ borderColor: "var(--border)" }}>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+                {item.title ?? item.label ?? "Eintrag"}
+              </p>
+              {item.status && (
+                <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                  {item.status}
+                </span>
+              )}
+            </div>
+            {item.summary && (
+              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                {item.summary}
+              </p>
+            )}
+          </div>
+        ))
+      )}
+    </GridSection>
   );
 }

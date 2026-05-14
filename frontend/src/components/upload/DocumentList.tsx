@@ -1,11 +1,13 @@
 "use client";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, XCircle, Clock, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePipelineStore } from "@/store/pipelineStore";
-import { formatDate, formatBytes } from "@/lib/utils";
-import type { Document, DocumentStatus } from "@/types/document";
+import { formatDate, formatBytes, formatRelativeTime } from "@/lib/utils";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { Document, DocumentStatus, PipelineLogEntry } from "@/types/document";
 
 interface DocumentListProps {
   projectId: string;
@@ -21,6 +23,8 @@ function StatusIcon({ status }: { status: DocumentStatus }) {
 export function DocumentList({ projectId }: DocumentListProps) {
   const qc = useQueryClient();
   const pipelines = usePipelineStore((s) => s.pipelines);
+  const details = usePipelineStore((s) => s.details);
+  const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
   const { data: documents, isLoading } = useQuery<Document[]>({
     queryKey: ["projects", projectId, "documents"],
@@ -67,11 +71,13 @@ export function DocumentList({ projectId }: DocumentListProps) {
     <div className="mt-2 space-y-1" aria-live="polite">
       {documents.map((doc) => {
         const liveStatus: DocumentStatus = pipelines[doc.id] ?? doc.processing_status;
+        const liveDetail = details[doc.id];
         return (
           <div
             key={doc.id}
-            className="group flex items-center gap-3 px-3 py-2 rounded-md"
+            className="group flex items-center gap-3 px-3 py-2 rounded-md cursor-pointer"
             style={{ background: "var(--bg-surface)" }}
+            onClick={() => setSelectedDocId(doc.id)}
           >
             <StatusIcon status={liveStatus} />
             <div className="flex-1 min-w-0">
@@ -84,10 +90,15 @@ export function DocumentList({ projectId }: DocumentListProps) {
                 {liveStatus === "pending" && " · Warteschlange"}
                 {liveStatus === "failed" && doc.processing_error && ` · ${doc.processing_error}`}
               </p>
+              {liveDetail?.detail && (
+                <p className="text-[11px] mt-1 truncate" style={{ color: "var(--text-muted)" }}>
+                  {liveDetail.detail}
+                </p>
+              )}
             </div>
             {liveStatus === "failed" && (
               <button
-                onClick={() => retryMutation.mutate(doc.id)}
+                onClick={(e) => { e.stopPropagation(); retryMutation.mutate(doc.id); }}
                 disabled={retryMutation.isPending}
                 className="flex items-center gap-1 text-xs px-2 py-1 rounded transition-default disabled:opacity-50"
                 style={{ color: "var(--accent)" }}
@@ -97,7 +108,7 @@ export function DocumentList({ projectId }: DocumentListProps) {
               </button>
             )}
             <button
-              onClick={() => deleteMutation.mutate(doc.id)}
+              onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(doc.id); }}
               disabled={deleteMutation.isPending}
               className="p-1 rounded transition-default opacity-0 group-hover:opacity-100 disabled:opacity-50"
               style={{ color: "var(--text-muted)" }}
@@ -108,6 +119,125 @@ export function DocumentList({ projectId }: DocumentListProps) {
           </div>
         );
       })}
+      <DocumentDetailDialog
+        document={documents.find((doc) => doc.id === selectedDocId) ?? null}
+        liveDetail={selectedDocId ? details[selectedDocId] : undefined}
+        open={selectedDocId !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedDocId(null);
+        }}
+      />
     </div>
+  );
+}
+
+function DocumentDetailDialog({
+  document,
+  liveDetail,
+  open,
+  onOpenChange,
+}: {
+  document: Document | null;
+  liveDetail?: {
+    step: number | null;
+    total: number | null;
+    label: string | null;
+    status: string | null;
+    detail: string | null;
+    timestamp: string | null;
+    logs: PipelineLogEntry[];
+  };
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const mergedLogs = useMemo(() => {
+    const persisted = document?.pipeline_logs ?? [];
+    const ephemeral = liveDetail?.logs ?? [];
+    const all = [...persisted, ...ephemeral];
+    return all.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [document?.pipeline_logs, liveDetail?.logs]);
+
+  if (!document) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl p-0 overflow-hidden" showCloseButton>
+        <div style={{ background: "var(--bg-surface)" }}>
+          <DialogHeader className="px-6 pt-6">
+            <DialogTitle>{document.original_filename}</DialogTitle>
+            <DialogDescription>
+              {document.processing_status} · {formatBytes(document.file_size)} · hochgeladen {formatRelativeTime(document.uploaded_at)}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="px-6 py-4 border-b" style={{ borderColor: "var(--border)" }}>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Pipeline</p>
+                <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+                  {liveDetail?.label ?? document.pipeline_step_label ?? "Noch keine Aktivität"}
+                </p>
+                {(liveDetail?.detail ?? document.processing_error) && (
+                  <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                    {liveDetail?.detail ?? document.processing_error}
+                  </p>
+                )}
+              </div>
+              <div className="text-right">
+                <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+                  {liveDetail?.step ?? document.pipeline_step ?? 0}/{liveDetail?.total ?? 10}
+                </p>
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {document.pipeline_updated_at ? formatRelativeTime(document.pipeline_updated_at) : "keine Updates"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="px-6 py-4 border-r" style={{ borderColor: "var(--border)" }}>
+              <p className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-muted)" }}>Summary</p>
+              <p className="text-sm whitespace-pre-wrap" style={{ color: "var(--text-primary)" }}>
+                {document.summary || "Noch keine Summary verfügbar."}
+              </p>
+
+              <p className="text-xs uppercase tracking-widest mt-6 mb-2" style={{ color: "var(--text-muted)" }}>Raw Text</p>
+              <div
+                className="rounded-md p-3 max-h-72 overflow-y-auto text-xs whitespace-pre-wrap"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)" }}
+              >
+                {document.raw_content || "Noch kein extrahierter Text verfügbar."}
+              </div>
+            </div>
+
+            <div className="px-6 py-4">
+              <p className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-muted)" }}>Logs</p>
+              <div className="space-y-2 max-h-[26rem] overflow-y-auto">
+                {mergedLogs.length === 0 ? (
+                  <p className="text-xs" style={{ color: "var(--text-muted)" }}>Noch keine Logs.</p>
+                ) : (
+                  mergedLogs.map((entry, index) => (
+                    <div key={`${entry.timestamp}-${index}`} className="rounded-md p-3" style={{ background: "var(--bg-elevated)" }}>
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm" style={{ color: "var(--text-primary)" }}>{entry.label}</p>
+                        <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                          {entry.status}
+                        </span>
+                      </div>
+                      {entry.detail && (
+                        <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>{entry.detail}</p>
+                      )}
+                      <p className="text-[11px] mt-2" style={{ color: "var(--text-muted)" }}>
+                        Step {entry.step ?? "-"} / {entry.total} · {formatRelativeTime(entry.timestamp)}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

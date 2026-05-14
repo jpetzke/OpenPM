@@ -1,6 +1,7 @@
 import json
 import uuid
 from typing import Any
+import structlog
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -20,6 +21,7 @@ from app.services import qdrant_service
 from redis.asyncio import Redis as ARedis
 
 router = APIRouter(prefix="/api/projects/{project_id}/chat", tags=["chat"])
+log = structlog.get_logger()
 
 _CHAT_TOOLS = [
     {
@@ -146,7 +148,8 @@ async def chat(
             _redis = ARedis.from_url(app_settings_config.redis_url, decode_responses=True)
             embeddings_flag = await _redis.get(_KEY_EMBEDDINGS)
             active_tools = [t for t in _CHAT_TOOLS if t["function"]["name"] != "search_documents"] if embeddings_flag == "0" else _CHAT_TOOLS
-            response = await llm_service.complete(messages, tools=active_tools)
+            yield f"data: {json.dumps({'type': 'message_start'})}\n\n"
+            response = await llm_service.complete(messages, tools=active_tools, purpose="chat_tool_selection")
             choice = response.choices[0]
 
             if choice.finish_reason == "tool_calls" and choice.message.tool_calls:
@@ -169,16 +172,16 @@ async def chat(
                         "content": json.dumps(tool_result, default=str),
                     })
 
-                final_response = await llm_service.complete(tool_messages)
-                content = final_response.choices[0].message.content or ""
-                collected.append(content)
-                yield f"data: {json.dumps({'type': 'content', 'text': content})}\n\n"
+                async for delta in llm_service.stream(tool_messages, purpose="chat_final_response"):
+                    collected.append(delta)
+                    yield f"data: {json.dumps({'type': 'content_delta', 'delta': delta})}\n\n"
             else:
-                content = choice.message.content or ""
-                collected.append(content)
-                yield f"data: {json.dumps({'type': 'content', 'text': content})}\n\n"
+                if choice.message.content:
+                    collected.append(choice.message.content)
+                    yield f"data: {json.dumps({'type': 'content_delta', 'delta': choice.message.content})}\n\n"
 
         except Exception as e:
+            log.error("chat_stream_failed", project_id=str(project_id), error=str(e))
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
             return
 
@@ -192,6 +195,7 @@ async def chat(
         )
         db.add(assistant_msg)
         await db.commit()
+        yield f"data: {json.dumps({'type': 'message_end'})}\n\n"
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")

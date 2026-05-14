@@ -13,7 +13,7 @@ interface ChatInterfaceProps {
 
 export function ChatInterface({ projectId }: ChatInterfaceProps) {
   const qc = useQueryClient();
-  const { streaming, streamingText, sendMessage } = useChatStream(projectId);
+  const { streaming, sending, streamingText, activeTools, sendMessage } = useChatStream(projectId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<ChatMessage[]>([]);
 
@@ -78,9 +78,19 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
             isStreaming
           />
         )}
+        {sending && !streamingText && (
+          <div className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
+            Anfrage wird gesendet…
+          </div>
+        )}
+        {activeTools.length > 0 && (
+          <div className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
+            Nutzt Kontext: {activeTools.join(", ")}
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
-      <ChatInput onSend={handleSend} disabled={streaming} />
+      <ChatInput onSend={handleSend} disabled={sending || streaming} sending={sending || streaming} />
     </div>
   );
 }

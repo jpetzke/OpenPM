@@ -51,6 +51,13 @@ def test_chat_message_create():
     assert c.content == "What are the open tasks?"
 
 
+def test_document_response_has_observability_fields():
+    fields = DocumentResponse.model_fields
+    assert "summary" in fields
+    assert "pipeline_logs" in fields
+    assert "pipeline_step_label" in fields
+
+
 def _make_uuid():
     return uuid.uuid4()
 
