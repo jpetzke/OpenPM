@@ -161,41 +161,45 @@ function DocumentDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl p-0 overflow-hidden" showCloseButton>
-        <div style={{ background: "var(--bg-surface)" }}>
-          <DialogHeader className="px-6 pt-6">
+      <DialogContent className="w-[min(96vw,72rem)] max-w-[72rem] p-0 overflow-hidden" showCloseButton>
+        <div className="flex max-h-[85vh] flex-col" style={{ background: "var(--bg-surface)" }}>
+          <DialogHeader className="shrink-0 px-6 pt-6">
             <DialogTitle>{document.original_filename}</DialogTitle>
             <DialogDescription>
               {document.processing_status} · {formatBytes(document.file_size)} · hochgeladen {formatRelativeTime(document.uploaded_at)}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="px-6 py-4 border-b" style={{ borderColor: "var(--border)" }}>
+          <div className="shrink-0 border-b px-6 py-4" style={{ borderColor: "var(--border)" }}>
             <div className="flex items-center justify-between gap-3">
-              <div>
+              <div className="min-w-0">
                 <p className="text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Pipeline</p>
                 <p className="text-sm" style={{ color: "var(--text-primary)" }}>
                   {liveDetail?.label ?? document.pipeline_step_label ?? "Noch keine Aktivität"}
                 </p>
                 {(liveDetail?.detail ?? document.processing_error) && (
-                  <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  <p className="mt-1 text-xs break-words" style={{ color: "var(--text-muted)" }}>
                     {liveDetail?.detail ?? document.processing_error}
                   </p>
                 )}
               </div>
-              <div className="text-right">
+              <div className="shrink-0 text-right">
                 <p className="text-sm" style={{ color: "var(--text-primary)" }}>
                   {liveDetail?.step ?? document.pipeline_step ?? 0}/{liveDetail?.total ?? 10}
                 </p>
                 <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                  {document.pipeline_updated_at ? formatRelativeTime(document.pipeline_updated_at) : "keine Updates"}
+                  {liveDetail?.timestamp
+                    ? formatRelativeTime(liveDetail.timestamp)
+                    : document.pipeline_updated_at
+                      ? formatRelativeTime(document.pipeline_updated_at)
+                      : "keine Updates"}
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr]">
-            <div className="px-6 py-4 border-r" style={{ borderColor: "var(--border)" }}>
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1.1fr)_minmax(20rem,0.9fr)]">
+            <div className="min-w-0 overflow-y-auto px-6 py-4 lg:border-r" style={{ borderColor: "var(--border)" }}>
               <p className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-muted)" }}>Summary</p>
               <p className="text-sm whitespace-pre-wrap" style={{ color: "var(--text-primary)" }}>
                 {document.summary || "Noch keine Summary verfügbar."}
@@ -210,9 +214,9 @@ function DocumentDetailDialog({
               </div>
             </div>
 
-            <div className="px-6 py-4">
+            <div className="min-w-0 overflow-y-auto border-t px-6 py-4 lg:border-t-0" style={{ borderColor: "var(--border)" }}>
               <p className="text-xs uppercase tracking-widest mb-2" style={{ color: "var(--text-muted)" }}>Logs</p>
-              <div className="space-y-2 max-h-[26rem] overflow-y-auto">
+              <div className="space-y-2">
                 {mergedLogs.length === 0 ? (
                   <p className="text-xs" style={{ color: "var(--text-muted)" }}>Noch keine Logs.</p>
                 ) : (

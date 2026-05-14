@@ -1,9 +1,14 @@
 import logging
+from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
+from app.auth import hash_password
 from app.config import settings
+from app.database import async_session_factory
+from app.models.user import User
 from app.routers import app_settings, auth, chat, documents, events, projects, state
 
 structlog.configure(
@@ -21,7 +26,37 @@ structlog.configure(
 
 log = structlog.get_logger()
 
-app = FastAPI(title="OpenPM API", version="0.1.0")
+DEMO_USER_EMAIL = "demo@openmp.ai"
+DEMO_USER_NAME = "Demo"
+DEMO_USER_PASSWORD = "passwort"
+
+
+async def ensure_demo_user() -> None:
+    async with async_session_factory() as session:
+        result = await session.execute(select(User).where(User.email == DEMO_USER_EMAIL))
+        existing_user = result.scalar_one_or_none()
+        if existing_user:
+            log.info("demo_user_present", email=DEMO_USER_EMAIL)
+            return
+
+        session.add(
+            User(
+                email=DEMO_USER_EMAIL,
+                name=DEMO_USER_NAME,
+                hashed_password=hash_password(DEMO_USER_PASSWORD),
+            )
+        )
+        await session.commit()
+        log.info("demo_user_created", email=DEMO_USER_EMAIL)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await ensure_demo_user()
+    yield
+
+
+app = FastAPI(title="OpenPM API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

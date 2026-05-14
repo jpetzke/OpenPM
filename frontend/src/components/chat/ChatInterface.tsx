@@ -90,7 +90,7 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
         )}
         <div ref={bottomRef} />
       </div>
-      <ChatInput onSend={handleSend} disabled={sending || streaming} sending={sending || streaming} />
+      <ChatInput onSend={handleSend} disabled={sending} sending={sending || streaming} />
     </div>
   );
 }

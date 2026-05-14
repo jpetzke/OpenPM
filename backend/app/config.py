@@ -42,7 +42,11 @@ class Settings(BaseSettings):
 
     @property
     def llm_model_candidates(self) -> list[str]:
-        return self.llm_models or [self.llm_model]
+        if self.llm_models:
+            return self.llm_models
+        if "," in self.llm_model:
+            return [item.strip() for item in self.llm_model.split(",") if item.strip()]
+        return [self.llm_model]
 
 
 settings = Settings()

@@ -55,3 +55,18 @@ def test_settings_llm_model_candidates_fall_back_to_single_model():
         llm_model="anthropic/claude-sonnet-4-20250514",
     )
     assert s.llm_model_candidates == ["anthropic/claude-sonnet-4-20250514"]
+
+
+def test_settings_llm_model_candidates_split_comma_separated_single_env_value():
+    s = Settings(
+        database_url="postgresql+asyncpg://test:test@localhost/test",
+        secret_key="a-secret-key-that-is-long-enough-here",
+        llm_api_key="test",
+        embedding_api_key="test",
+        llm_model="inclusionai/ring-2.6-1t:free,openai/gpt-oss-120b:free,arcee-ai/trinity-large-thinking:free",
+    )
+    assert s.llm_model_candidates == [
+        "inclusionai/ring-2.6-1t:free",
+        "openai/gpt-oss-120b:free",
+        "arcee-ai/trinity-large-thinking:free",
+    ]

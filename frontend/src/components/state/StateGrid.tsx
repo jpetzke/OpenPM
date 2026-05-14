@@ -9,6 +9,18 @@ interface StateGridProps {
   projectId: string;
 }
 
+function hasText(value: unknown): boolean {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function hasVisibleDynamicItemContent(item: DynamicSection["items"][number]): boolean {
+  return Object.values(item).some((value) => {
+    if (typeof value === "string") return value.trim().length > 0;
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== null && value !== undefined;
+  });
+}
+
 function GridSection({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
   return (
     <div
@@ -38,88 +50,109 @@ export function StateGrid({ state, projectId }: StateGridProps) {
   const blockers = state.core?.blockers ?? [];
   const decisions = state.core?.decisions ?? [];
   const deadlines = state.core?.deadlines ?? [];
-  const dynamicSections = state.dynamic_sections ?? [];
+  const dynamicSections = (state.dynamic_sections ?? [])
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(hasVisibleDynamicItemContent),
+    }))
+    .filter((section) => hasText(section.title) && section.items.length > 0);
 
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <GridSection title="Offene Tasks" count={openTasks.length}>
-        {openTasks.length === 0 ? (
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Keine offenen Tasks</p>
-        ) : (
-          openTasks.map((t) => <TaskCard key={t.id} task={t} projectId={projectId} />)
-        )}
-      </GridSection>
-
-      <GridSection title="Kontakte" count={contacts.length}>
-        {contacts.length === 0 ? (
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Keine Kontakte</p>
-        ) : (
-          contacts.map((c, i) => <ContactCard key={i} contact={c} />)
-        )}
-      </GridSection>
-
-      <GridSection title="Blocker" count={blockers.length}>
-        {blockers.length === 0 ? (
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Keine Blocker</p>
-        ) : (
-          blockers.map((b, i) => <BlockerCard key={i} blocker={b} />)
-        )}
-      </GridSection>
-
-      <GridSection title="Entscheidungen" count={decisions.length}>
-        {decisions.length === 0 ? (
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Keine Entscheidungen</p>
-        ) : (
-          decisions.map((d, i) => <DecisionCard key={i} decision={d} />)
-        )}
-      </GridSection>
-
-      <GridSection title="Deadlines" count={deadlines.length}>
-        {deadlines.length === 0 ? (
-          <p className="text-xs" style={{ color: "var(--text-muted)" }}>Keine Deadlines</p>
-        ) : (
-          deadlines.map((d, i) => (
+  const sections = [
+    openTasks.length > 0
+      ? {
+          key: "tasks",
+          title: "Offene Tasks",
+          count: openTasks.length,
+          content: openTasks.map((t) => <TaskCard key={t.id} task={t} projectId={projectId} />),
+        }
+      : null,
+    contacts.length > 0
+      ? {
+          key: "contacts",
+          title: "Kontakte",
+          count: contacts.length,
+          content: contacts.map((c, i) => <ContactCard key={c.id ?? i} contact={c} />),
+        }
+      : null,
+    blockers.length > 0
+      ? {
+          key: "blockers",
+          title: "Blocker",
+          count: blockers.length,
+          content: blockers.map((b, i) => <BlockerCard key={b.id ?? i} blocker={b} />),
+        }
+      : null,
+    decisions.length > 0
+      ? {
+          key: "decisions",
+          title: "Entscheidungen",
+          count: decisions.length,
+          content: decisions.map((d, i) => <DecisionCard key={d.id ?? i} decision={d} />),
+        }
+      : null,
+    deadlines.length > 0
+      ? {
+          key: "deadlines",
+          title: "Deadlines",
+          count: deadlines.length,
+          content: deadlines.map((d, i) => (
             <div key={d.id ?? i} className="py-2 border-b last:border-b-0" style={{ borderColor: "var(--border)" }}>
               <p className="text-sm" style={{ color: "var(--text-primary)" }}>{d.title}</p>
               <p className="text-xs" style={{ color: "var(--text-muted)" }}>{d.date}</p>
             </div>
-          ))
-        )}
-      </GridSection>
+          )),
+        }
+      : null,
+  ].filter(Boolean) as Array<{ key: string; title: string; count: number; content: React.ReactNode }>;
 
-      {dynamicSections.map((section) => (
-        <DynamicSectionCard key={section.id} section={section} />
-      ))}
-    </div>
+  return (
+    <>
+      {sections.length === 0 && dynamicSections.length === 0 ? (
+        <div
+          className="rounded-lg border p-5 text-sm"
+          style={{ background: "var(--bg-surface)", borderColor: "var(--border)", color: "var(--text-muted)" }}
+        >
+          Noch keine State-Informationen vorhanden.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          {sections.map((section) => (
+            <GridSection key={section.key} title={section.title} count={section.count}>
+              {section.content}
+            </GridSection>
+          ))}
+
+          {dynamicSections.map((section) => (
+            <DynamicSectionCard key={section.id} section={section} />
+          ))}
+        </div>
+      )}
+    </>
   );
 }
 
 function DynamicSectionCard({ section }: { section: DynamicSection }) {
   return (
     <GridSection title={section.title} count={section.items.length}>
-      {section.items.length === 0 ? (
-        <p className="text-xs" style={{ color: "var(--text-muted)" }}>Keine Einträge</p>
-      ) : (
-        section.items.map((item) => (
-          <div key={item.id} className="py-2 border-b last:border-b-0" style={{ borderColor: "var(--border)" }}>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm" style={{ color: "var(--text-primary)" }}>
-                {item.title ?? item.label ?? "Eintrag"}
-              </p>
-              {item.status && (
-                <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-                  {item.status}
-                </span>
-              )}
-            </div>
-            {item.summary && (
-              <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                {item.summary}
-              </p>
+      {section.items.map((item) => (
+        <div key={item.id} className="py-2 border-b last:border-b-0" style={{ borderColor: "var(--border)" }}>
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-sm" style={{ color: "var(--text-primary)" }}>
+              {item.title ?? item.label ?? "Eintrag"}
+            </p>
+            {item.status && (
+              <span className="text-[10px] uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
+                {item.status}
+              </span>
             )}
           </div>
-        ))
-      )}
+          {item.summary && (
+            <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              {item.summary}
+            </p>
+          )}
+        </div>
+      ))}
     </GridSection>
   );
 }
