@@ -162,7 +162,10 @@ function DocumentDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="h-[min(92vh,58rem)] w-[min(96vw,92rem)] max-w-[92rem] p-0 overflow-hidden" showCloseButton>
+      <DialogContent
+        className="h-[min(92vh,58rem)] w-[min(96vw,92rem)] max-w-[92rem] p-0 overflow-hidden sm:max-w-[min(96vw,92rem)]"
+        showCloseButton
+      >
         <div className="flex h-full min-h-0 flex-col" style={{ background: "var(--bg-surface)" }}>
           <DialogHeader className="shrink-0 px-6 pt-6">
             <DialogTitle>{document.original_filename}</DialogTitle>
@@ -199,8 +202,8 @@ function DocumentDetailDialog({
             </div>
           </div>
 
-          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1.25fr)_minmax(22rem,0.95fr)]">
-            <ScrollArea className="min-h-0 min-w-0 xl:border-r" style={{ borderColor: "var(--border)" }}>
+          <div className="grid min-h-0 flex-1 grid-cols-1 overflow-hidden lg:grid-cols-[minmax(0,1.25fr)_minmax(24rem,0.95fr)]">
+            <ScrollArea className="min-h-0 min-w-0 lg:border-r" style={{ borderColor: "var(--border)" }}>
               <div className="space-y-6 px-6 py-5">
                 <section>
                   <p className="mb-2 text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Summary</p>
@@ -223,11 +226,11 @@ function DocumentDetailDialog({
               </div>
             </ScrollArea>
 
-            <div className="min-h-0 min-w-0 border-t xl:border-t-0" style={{ borderColor: "var(--border)" }}>
+            <div className="min-h-0 min-w-0 border-t lg:border-t-0" style={{ borderColor: "var(--border)" }}>
               <div className="shrink-0 px-6 py-5">
                 <p className="text-xs uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>Logs</p>
               </div>
-              <ScrollArea className="h-[min(42rem,calc(92vh-13rem))] min-h-0 min-w-0 xl:h-full">
+              <ScrollArea className="h-[min(42rem,calc(92vh-13rem))] min-h-0 min-w-0 lg:h-full">
                 <div className="space-y-3 px-6 pb-6">
                   {mergedLogs.length === 0 ? (
                     <p className="text-xs" style={{ color: "var(--text-muted)" }}>Noch keine Logs.</p>
