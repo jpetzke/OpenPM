@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { TaskCard } from "./TaskCard";
 import { ContactCard } from "./ContactCard";
 import { BlockerCard } from "./BlockerCard";
@@ -21,25 +23,39 @@ function hasVisibleDynamicItemContent(item: DynamicSection["items"][number]): bo
   });
 }
 
-function GridSection({ title, count, children }: { title: string; count: number; children: React.ReactNode }) {
+function GridSection({
+  title,
+  count,
+  children,
+  defaultOpen = true,
+}: {
+  title: string;
+  count: number;
+  children: React.ReactNode;
+  defaultOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+
   return (
-    <div
-      className="rounded-lg border p-4"
+    <details
+      className="group rounded-lg border overflow-hidden"
       style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <div className="flex items-center justify-between mb-3">
-        <span
-          className="text-xs font-semibold uppercase tracking-widest"
-          style={{ color: "var(--text-muted)" }}
-        >
+      <summary className="flex list-none cursor-pointer items-center justify-between gap-3 px-4 py-4 select-none [&::-webkit-details-marker]:hidden">
+        <span className="text-xs font-semibold uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
           {title}
         </span>
-        <span className="text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+        <span className="flex items-center gap-2 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
           {count}
+          <ChevronDown size={14} className="transition-transform duration-200 group-open:rotate-180" />
         </span>
+      </summary>
+      <div className="border-t p-4" style={{ borderColor: "var(--border)" }}>
+        {children}
       </div>
-      <div>{children}</div>
-    </div>
+    </details>
   );
 }
 
@@ -105,6 +121,8 @@ export function StateGrid({ state, projectId }: StateGridProps) {
       : null,
   ].filter(Boolean) as Array<{ key: string; title: string; count: number; content: React.ReactNode }>;
 
+  const shouldCollapse = (count: number) => count > 5;
+
   return (
     <>
       {sections.length === 0 && dynamicSections.length === 0 ? (
@@ -117,13 +135,18 @@ export function StateGrid({ state, projectId }: StateGridProps) {
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
           {sections.map((section) => (
-            <GridSection key={section.key} title={section.title} count={section.count}>
+            <GridSection
+              key={section.key}
+              title={section.title}
+              count={section.count}
+              defaultOpen={!shouldCollapse(section.count)}
+            >
               {section.content}
             </GridSection>
           ))}
 
           {dynamicSections.map((section) => (
-            <DynamicSectionCard key={section.id} section={section} />
+            <DynamicSectionCard key={section.id} section={section} defaultOpen={!shouldCollapse(section.items.length)} />
           ))}
         </div>
       )}
@@ -131,9 +154,9 @@ export function StateGrid({ state, projectId }: StateGridProps) {
   );
 }
 
-function DynamicSectionCard({ section }: { section: DynamicSection }) {
+function DynamicSectionCard({ section, defaultOpen = true }: { section: DynamicSection; defaultOpen?: boolean }) {
   return (
-    <GridSection title={section.title} count={section.items.length}>
+    <GridSection title={section.title} count={section.items.length} defaultOpen={defaultOpen}>
       {section.items.map((item) => (
         <div key={item.id} className="py-2 border-b last:border-b-0" style={{ borderColor: "var(--border)" }}>
           <div className="flex items-center justify-between gap-3">

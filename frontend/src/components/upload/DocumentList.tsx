@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, XCircle, Clock, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,66 +45,6 @@ function pipelineStatusColor(status: PipelineLogEntry["status"] | string | null 
   if (status === "failed") return "var(--danger)";
   if (status === "running") return "var(--accent)";
   return "var(--text-muted)";
-}
-
-interface PipelineLogGroup {
-  key: string;
-  step: number | null;
-  total: number;
-  label: string;
-  status: PipelineLogEntry["status"];
-  timestamp: string;
-  detailLines: string[];
-}
-
-function getGroupedPipelineLogs(entries: PipelineLogEntry[]): PipelineLogGroup[] {
-  if (entries.length === 0) return [];
-
-  const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-  const maxStep = sorted.reduce((currentMax, entry) => Math.max(currentMax, entry.step ?? 0), 0);
-  const groups = new Map<string, PipelineLogEntry[]>();
-
-  for (const entry of sorted) {
-    const key = `${entry.step ?? "na"}:${entry.label}`;
-    const group = groups.get(key) ?? [];
-    group.push(entry);
-    groups.set(key, group);
-  }
-
-  return Array.from(groups.entries())
-    .map(([key, groupEntries]) => {
-      const latest = groupEntries[groupEntries.length - 1];
-      const status =
-        latest.label === "queued" && maxStep > 1 && latest.status === "running"
-          ? "done"
-          : latest.status;
-      const detailsForStatus =
-        status === "running"
-          ? groupEntries
-          : groupEntries.filter((entry) => entry.status === latest.status);
-      const detailLines = Array.from(
-        new Set(
-          detailsForStatus
-            .map((entry) => entry.detail?.trim())
-            .filter((detail): detail is string => Boolean(detail))
-        )
-      );
-
-      return {
-        key,
-        step: latest.step ?? null,
-        total: latest.total,
-        label: latest.label,
-        status,
-        timestamp: latest.timestamp,
-        detailLines,
-      };
-    })
-    .sort((a, b) => {
-      const stepDelta = (a.step ?? 999) - (b.step ?? 999);
-      if (stepDelta !== 0) return stepDelta;
-      return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
-    });
 }
 
 function StatusIcon({ status }: { status: DocumentStatus }) {
@@ -244,11 +184,26 @@ function DocumentDetailDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const groupedLogs = useMemo(() => {
+  const timelineEntries = useMemo(() => {
     const persisted = document?.pipeline_logs ?? [];
     const ephemeral = liveDetail?.logs ?? [];
-    return getGroupedPipelineLogs([...persisted, ...ephemeral]);
+    const merged = [...persisted, ...ephemeral].sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+    const seen = new Set<string>();
+
+    return merged.filter((entry) => {
+      const key = [entry.timestamp, entry.step ?? "", entry.total, entry.label, entry.status, entry.detail ?? ""].join("|");
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   }, [document?.pipeline_logs, liveDetail?.logs]);
+  const scrollAnchorRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    scrollAnchorRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [timelineEntries.length, open]);
 
   if (!document) return null;
 
@@ -327,11 +282,15 @@ function DocumentDetailDialog({
               </div>
               <div className="app-scrollable min-h-0 min-w-0 flex-1 overflow-y-auto">
                 <div className="space-y-3 px-6 pb-10 pr-8">
-                  {groupedLogs.length === 0 ? (
+                  {timelineEntries.length === 0 ? (
                     <p className="text-xs" style={{ color: "var(--text-muted)" }}>Noch keine Logs.</p>
                   ) : (
-                    groupedLogs.map((entry) => (
-                      <div key={entry.key} className="rounded-xl p-4" style={{ background: "var(--bg-elevated)" }}>
+                    timelineEntries.map((entry) => (
+                      <div
+                        key={[entry.timestamp, entry.step ?? "", entry.label, entry.status, entry.detail ?? ""].join("|")}
+                        className="rounded-xl border p-4 animate-in fade-in-0 zoom-in-95 duration-200"
+                        style={{ background: "var(--bg-elevated)", borderColor: "var(--border)" }}
+                      >
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <p className="text-sm" style={{ color: "var(--text-primary)" }}>
@@ -351,19 +310,18 @@ function DocumentDetailDialog({
                             {PIPELINE_STATUS_LABELS[entry.status]}
                           </span>
                         </div>
-                        <div className="mt-3 space-y-1.5">
-                          {entry.detailLines.map((detail) => (
-                            <p key={detail} className="text-xs leading-5" style={{ color: "var(--text-secondary)" }}>
-                              {detail}
-                            </p>
-                          ))}
-                        </div>
+                        {entry.detail && (
+                          <p className="mt-3 text-xs leading-5" style={{ color: "var(--text-secondary)" }}>
+                            {entry.detail}
+                          </p>
+                        )}
                         <p className="text-[11px] mt-2" style={{ color: "var(--text-muted)" }}>
                           {formatRelativeTime(entry.timestamp)}
                         </p>
                       </div>
                     ))
                   )}
+                  <div ref={scrollAnchorRef} />
                 </div>
               </div>
             </div>
