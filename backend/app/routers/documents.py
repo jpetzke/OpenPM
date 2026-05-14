@@ -25,6 +25,22 @@ async def _enqueue_pipeline(document_id: str) -> None:
     await redis.aclose()
 
 
+async def _schedule_batch(project_id: str, doc_id: str) -> None:
+    """Add a document to the project's pending batch and schedule processing after a 10-second window.
+
+    If another upload for the same project already scheduled a batch job within the last 10 seconds,
+    the new document is simply appended to the shared pending set and will be included automatically.
+    """
+    from arq import create_pool
+    from arq.connections import RedisSettings
+    redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    await redis.sadd(f"pending_batch:{project_id}", doc_id)
+    lock_acquired = await redis.set(f"batch_lock:{project_id}", "1", ex=10, nx=True)
+    if lock_acquired:
+        await redis.enqueue_job("process_project_batch", project_id, _defer_by=10)
+    await redis.aclose()
+
+
 async def _get_doc_or_404(project_id: uuid.UUID, doc_id: uuid.UUID, db: AsyncSession) -> Document:
     result = await db.execute(
         select(Document).where(Document.id == doc_id, Document.project_id == project_id)
@@ -66,7 +82,7 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
 
-    await _enqueue_pipeline(str(doc.id))
+    await _schedule_batch(str(project_id), str(doc.id))
     return doc
 
 
@@ -107,7 +123,7 @@ async def create_text_document(
     await db.commit()
     await db.refresh(doc)
 
-    await _enqueue_pipeline(str(doc.id))
+    await _schedule_batch(str(project_id), str(doc.id))
     return doc
 
 

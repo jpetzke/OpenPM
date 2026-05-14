@@ -48,7 +48,7 @@ Format:
 }}"""
 
 _SUMMARY_SYSTEM = """Du erstellst kurze, präzise Dokumentzusammenfassungen für Projektarbeit.
-Antworte auf Deutsch, maximal 6 Sätze, mit Fokus auf wichtigste Inhalte, offene Punkte und Risiken."""
+Antworte auf Deutsch, maximal 2 Sätze, mit Fokus auf wichtigste Inhalte und offene Punkte."""
 
 
 def _clean_json(text: str) -> str:
