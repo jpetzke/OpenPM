@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { usePipelineStore } from "@/store/pipelineStore";
 import { formatDate, formatBytes, formatRelativeTime } from "@/lib/utils";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { BatchTimerBar } from "@/components/upload/BatchTimerBar";
 import type { Document, DocumentStatus, PipelineLogEntry } from "@/types/document";
 
 interface DocumentListProps {
@@ -16,6 +17,7 @@ interface DocumentListProps {
 const PIPELINE_LABELS: Record<string, string> = {
   queued: "Warteschlange",
   parsing: "Dokument extrahieren",
+  summarizing: "Zusammenfassung erstellen",
   document_insights: "Summary speichern",
   state_load: "Projekt-State laden",
   state_extraction: "State extrahieren",
@@ -66,6 +68,10 @@ export function DocumentList({ projectId }: DocumentListProps) {
     refetchInterval: 10_000,
   });
 
+  const pendingDocs = (documents ?? []).filter(
+    (d) => (pipelines[d.id] ?? d.processing_status) === "pending"
+  );
+
   const retryMutation = useMutation({
     mutationFn: (docId: string) =>
       api.post<Document>(`/api/projects/${projectId}/documents/${docId}/reprocess`),
@@ -102,7 +108,13 @@ export function DocumentList({ projectId }: DocumentListProps) {
   }
 
   return (
-    <div className="mt-2 space-y-1" aria-live="polite">
+    <div className="mt-2" aria-live="polite">
+      <BatchTimerBar
+        projectId={projectId}
+        pendingDocs={pendingDocs}
+        onTriggered={() => qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] })}
+      />
+      <div className="space-y-1">
       {documents.map((doc) => {
         const liveStatus: DocumentStatus = pipelines[doc.id] ?? doc.processing_status;
         const liveDetail = details[doc.id];
@@ -153,6 +165,7 @@ export function DocumentList({ projectId }: DocumentListProps) {
           </div>
         );
       })}
+      </div>
       <DocumentDetailDialog
         document={documents.find((doc) => doc.id === selectedDocId) ?? null}
         liveDetail={selectedDocId ? details[selectedDocId] : undefined}

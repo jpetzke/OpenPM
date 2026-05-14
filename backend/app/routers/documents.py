@@ -131,6 +131,52 @@ async def create_text_document(
     return doc
 
 
+async def _arq_redis(project_id_str: str | None = None):
+    from arq import create_pool
+    from arq.connections import RedisSettings
+    return await create_pool(RedisSettings.from_dsn(settings.redis_url))
+
+
+@router.post("/batch/trigger", status_code=status.HTTP_204_NO_CONTENT)
+async def trigger_batch_now(
+    project_id: uuid.UUID,
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Skip the countdown and process the pending batch immediately."""
+    import time
+    redis = await _arq_redis()
+    count = await redis.scard(f"pending_batch:{project_id}")
+    if count:
+        await redis.set(f"batch_trigger:{project_id}", str(time.time() - 1), ex=30)
+        await redis.enqueue_job("process_project_batch", str(project_id))
+    await redis.aclose()
+
+
+@router.post("/batch/pause", status_code=status.HTTP_204_NO_CONTENT)
+async def pause_batch(
+    project_id: uuid.UUID,
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Pause the pending batch by pushing the trigger far into the future."""
+    import time
+    redis = await _arq_redis()
+    await redis.set(f"batch_trigger:{project_id}", str(time.time() + 3600), ex=7200)
+    await redis.aclose()
+
+
+@router.post("/batch/resume", status_code=status.HTTP_204_NO_CONTENT)
+async def resume_batch(
+    project_id: uuid.UUID,
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Resume a paused batch — reset the trigger to now + 10 seconds."""
+    import time
+    redis = await _arq_redis()
+    await redis.set(f"batch_trigger:{project_id}", str(time.time() + 10), ex=30)
+    await redis.enqueue_job("process_project_batch", str(project_id), _defer_by=11)
+    await redis.aclose()
+
+
 @router.get("/{doc_id}", response_model=DocumentResponse)
 async def get_document(
     project_id: uuid.UUID,
