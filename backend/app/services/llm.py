@@ -82,7 +82,7 @@ async def stream(
     last_exc: Exception | None = None
 
     for index, model in enumerate(candidates):
-        kwargs: dict = {"model": model, "messages": messages, "stream": True}
+        kwargs: dict = {"model": model, "messages": messages}
         if tools:
             kwargs["tools"] = tools
         started = time.perf_counter()
@@ -143,7 +143,7 @@ async def agent_round(
     last_exc: Exception | None = None
 
     for index, model in enumerate(candidates):
-        kwargs: dict = {"model": model, "messages": messages, "stream": True}
+        kwargs: dict = {"model": model, "messages": messages}
         if tools:
             kwargs["tools"] = tools
 

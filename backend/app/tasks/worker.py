@@ -1,11 +1,11 @@
 from arq.connections import RedisSettings
 
 from app.config import settings
-from app.tasks.pipeline import process_document
+from app.tasks.pipeline import process_document, process_project_batch
 
 
 class WorkerSettings:
-    functions = [process_document]
+    functions = [process_document, process_project_batch]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = settings.arq_max_jobs
     job_timeout = 300

@@ -25,6 +25,26 @@ async def _enqueue_pipeline(document_id: str) -> None:
     await redis.aclose()
 
 
+async def _schedule_batch(project_id: str, doc_id: str) -> None:
+    """Add a document to the project's pending batch, resetting the 10-second processing window.
+
+    Every upload refreshes the 'process after' timestamp, so the batch job only fires
+    10 seconds after the *last* upload in the window. Each upload enqueues its own
+    deferred ARQ job; jobs that arrive before the window closes exit immediately.
+    """
+    import time
+    from arq import create_pool
+    from arq.connections import RedisSettings
+    redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+    await redis.sadd(f"pending_batch:{project_id}", doc_id)
+    # Always overwrite the trigger timestamp — this is what resets the clock
+    trigger_at = time.time() + 10
+    await redis.set(f"batch_trigger:{project_id}", str(trigger_at), ex=30)
+    # Each upload schedules its own check job; most will exit early
+    await redis.enqueue_job("process_project_batch", project_id, _defer_by=11)
+    await redis.aclose()
+
+
 async def _get_doc_or_404(project_id: uuid.UUID, doc_id: uuid.UUID, db: AsyncSession) -> Document:
     result = await db.execute(
         select(Document).where(Document.id == doc_id, Document.project_id == project_id)
@@ -66,7 +86,7 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
 
-    await _enqueue_pipeline(str(doc.id))
+    await _schedule_batch(str(project_id), str(doc.id))
     return doc
 
 
@@ -107,8 +127,54 @@ async def create_text_document(
     await db.commit()
     await db.refresh(doc)
 
-    await _enqueue_pipeline(str(doc.id))
+    await _schedule_batch(str(project_id), str(doc.id))
     return doc
+
+
+async def _arq_redis(project_id_str: str | None = None):
+    from arq import create_pool
+    from arq.connections import RedisSettings
+    return await create_pool(RedisSettings.from_dsn(settings.redis_url))
+
+
+@router.post("/batch/trigger", status_code=status.HTTP_204_NO_CONTENT)
+async def trigger_batch_now(
+    project_id: uuid.UUID,
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Skip the countdown and process the pending batch immediately."""
+    import time
+    redis = await _arq_redis()
+    count = await redis.scard(f"pending_batch:{project_id}")
+    if count:
+        await redis.set(f"batch_trigger:{project_id}", str(time.time() - 1), ex=30)
+        await redis.enqueue_job("process_project_batch", str(project_id))
+    await redis.aclose()
+
+
+@router.post("/batch/pause", status_code=status.HTTP_204_NO_CONTENT)
+async def pause_batch(
+    project_id: uuid.UUID,
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Pause the pending batch by pushing the trigger far into the future."""
+    import time
+    redis = await _arq_redis()
+    await redis.set(f"batch_trigger:{project_id}", str(time.time() + 3600), ex=7200)
+    await redis.aclose()
+
+
+@router.post("/batch/resume", status_code=status.HTTP_204_NO_CONTENT)
+async def resume_batch(
+    project_id: uuid.UUID,
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Resume a paused batch — reset the trigger to now + 10 seconds."""
+    import time
+    redis = await _arq_redis()
+    await redis.set(f"batch_trigger:{project_id}", str(time.time() + 10), ex=30)
+    await redis.enqueue_job("process_project_batch", str(project_id), _defer_by=11)
+    await redis.aclose()
 
 
 @router.get("/{doc_id}", response_model=DocumentResponse)
