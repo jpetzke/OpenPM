@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, LogOut, Loader2 } from "lucide-react";
+import { Plus, LogOut, Loader2, Settings } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { usePipelineStore } from "@/store/pipelineStore";
@@ -20,6 +20,7 @@ interface AppSidebarProps {
 
 export function AppSidebar({ currentProjectId }: AppSidebarProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, clearAuth, token } = useAuthStore();
   const pipelines = usePipelineStore((s) => s.pipelines);
 
@@ -107,6 +108,13 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
             {user?.name || user?.email || "—"}
           </p>
         </div>
+        <Link
+          href="/settings"
+          className="p-1 rounded transition-default hover:opacity-70"
+          aria-label="Einstellungen"
+        >
+          <Settings size={14} style={{ color: pathname === "/settings" ? "var(--accent)" : "var(--text-muted)" }} />
+        </Link>
         <button
           onClick={handleLogout}
           className="p-1 rounded transition-default hover:opacity-70"

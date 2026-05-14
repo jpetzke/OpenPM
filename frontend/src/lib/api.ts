@@ -9,9 +9,10 @@ export interface ApiError {
 
 async function request<T>(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  authToken?: string
 ): Promise<T> {
-  const token = useAuthStore.getState().token;
+  const token = authToken ?? useAuthStore.getState().token;
   const headers: Record<string, string> = {
     ...(options.headers as Record<string, string>),
   };
@@ -49,6 +50,7 @@ async function request<T>(
 
 export const api = {
   get: <T>(path: string) => request<T>(path),
+  getWithToken: <T>(path: string, token: string) => request<T>(path, {}, token),
   post: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body: unknown) =>

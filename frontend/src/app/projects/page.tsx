@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
@@ -18,6 +18,7 @@ function statusColor(status: string) {
 export default function ProjectsPage() {
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
   const qc = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ name: "", client_name: "" });
@@ -40,10 +41,11 @@ export default function ProjectsPage() {
     onError: () => toast.error("Projekt konnte nicht erstellt werden"),
   });
 
-  if (!token) {
-    router.push("/login");
-    return null;
-  }
+  useEffect(() => {
+    if (hasHydrated && !token) router.push("/login");
+  }, [token, hasHydrated, router]);
+
+  if (!hasHydrated || !token) return null;
 
   if (isLoading) {
     return (

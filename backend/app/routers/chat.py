@@ -13,8 +13,11 @@ from app.models.project import ProjectMember
 from app.models.state import ChatMessage, ProjectState, StateChangelog
 from app.models.user import User
 from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
+from app.routers.app_settings import _KEY_EMBEDDINGS
+from app.config import settings as app_settings_config
 from app.services import llm as llm_service
 from app.services import qdrant_service
+from redis.asyncio import Redis as ARedis
 
 router = APIRouter(prefix="/api/projects/{project_id}/chat", tags=["chat"])
 
@@ -140,7 +143,10 @@ async def chat(
         tool_calls_data = None
 
         try:
-            response = await llm_service.complete(messages, tools=_CHAT_TOOLS)
+            _redis = ARedis.from_url(app_settings_config.redis_url, decode_responses=True)
+            embeddings_flag = await _redis.get(_KEY_EMBEDDINGS)
+            active_tools = [t for t in _CHAT_TOOLS if t["function"]["name"] != "search_documents"] if embeddings_flag == "0" else _CHAT_TOOLS
+            response = await llm_service.complete(messages, tools=active_tools)
             choice = response.choices[0]
 
             if choice.finish_reason == "tool_calls" and choice.message.tool_calls:

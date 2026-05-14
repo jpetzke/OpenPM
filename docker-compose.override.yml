@@ -1,8 +1,8 @@
 services:
   backend:
     volumes:
-      - ./backend:/app
-      - ./storage:/storage
+      - ./backend:/app:z
+      - ./storage:/storage:z
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:
@@ -11,6 +11,6 @@ services:
       args:
         NEXT_PUBLIC_API_URL: http://localhost:8000
     volumes:
-      - ./frontend:/app
+      - ./frontend:/app:z
       - /app/node_modules
     command: npm run dev

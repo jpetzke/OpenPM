@@ -32,7 +32,7 @@ export default function LoginPage() {
         "/auth/login",
         { email: data.email, password: data.password }
       );
-      const user = await api.get<User>("/auth/me");
+      const user = await api.getWithToken<User>("/auth/me", access_token);
       setAuth(user, access_token);
       router.push("/projects");
     } catch (err: unknown) {

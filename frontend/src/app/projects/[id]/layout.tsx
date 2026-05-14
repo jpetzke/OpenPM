@@ -20,12 +20,13 @@ export default function ProjectLayout({
   const { id } = use(params);
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
+  const hasHydrated = useAuthStore((s) => s.hasHydrated);
 
   useProjectSSE(id);
 
   useEffect(() => {
-    if (!token) router.push("/login");
-  }, [token, router]);
+    if (hasHydrated && !token) router.push("/login");
+  }, [token, hasHydrated, router]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -53,7 +54,7 @@ export default function ProjectLayout({
     enabled: !!token,
   });
 
-  if (!token) return null;
+  if (!hasHydrated || !token) return null;
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--bg-base)" }}>

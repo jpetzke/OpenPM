@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import auth, chat, documents, events, projects, state
+from app.routers import app_settings, auth, chat, documents, events, projects, state
 
 structlog.configure(
     processors=[
@@ -31,6 +31,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(app_settings.router)
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(documents.router)
