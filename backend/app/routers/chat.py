@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent_config import MAX_AGENT_ROUNDS
 from app.auth import get_current_user, get_project_member
+from app.config import settings as app_settings_config
 from app.database import get_db
 from app.models.document import Document
 from app.models.project import Project, ProjectMember
@@ -21,9 +22,9 @@ from app.models.state import ChatMessage, ProjectState, StateChangelog
 from app.models.user import User
 from app.routers.app_settings import _KEY_EMBEDDINGS
 from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
+from app.services import briefing as briefing_service
 from app.services import llm as llm_service
 from app.services import qdrant_service
-from app.config import settings as app_settings_config
 from redis.asyncio import Redis as ARedis
 
 router = APIRouter(prefix="/api/projects/{project_id}/chat", tags=["chat"])
@@ -333,6 +334,24 @@ async def _update_task_status(tool_args: dict, project_id: uuid.UUID, db: AsyncS
         triggered_by="chat_tool",
     )
     db.add(changelog)
+
+    # Regenerate compiled briefing so the project panel stays in sync.
+    proj_result = await db.execute(select(Project).where(Project.id == project_id))
+    project = proj_result.scalar_one_or_none()
+    if project:
+        briefing_text = briefing_service.render_briefing(
+            {
+                "name": project.name,
+                "client_name": project.client_name,
+                "status": project.status,
+                "updated_at": str(project.updated_at),
+            },
+            new_state_data,
+            new_version,
+            [{"to_version": new_version, "triggered_by": "chat_tool"}],
+        )
+        project.compiled_briefing = briefing_text
+
     await db.commit()
 
     return {
