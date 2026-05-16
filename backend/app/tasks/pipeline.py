@@ -283,7 +283,7 @@ async def process_project_batch(ctx: dict, project_id: str) -> None:
         cl_dicts = [{"to_version": c.to_version, "triggered_by": c.triggered_by} for c in recent_cl_result.scalars().all()]
         if project:
             briefing_text = briefing_service.render_briefing(
-                {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": str(project.updated_at)},
+                {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": project.updated_at.isoformat()},
                 new_state, new_version, cl_dicts,
             )
             project.compiled_briefing = briefing_text
@@ -495,7 +495,7 @@ async def _process(db: AsyncSession, redis: Any, document_id: str) -> None:
 
         if project:
             briefing_text = briefing_service.render_briefing(
-                {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": str(project.updated_at)},
+                {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": project.updated_at.isoformat()},
                 new_state,
                 new_version,
                 cl_dicts,

@@ -27,8 +27,8 @@ def render_briefing(project: dict, state: dict, version: int, changelog_entries:
             f"### Offene Tasks ({len(open_tasks)})",
         ]
         for t in open_tasks:
-            deadline = f" — fällig {t['deadline']}" if t.get("deadline") else ""
-            lines.append(f"- [ ] {t['title']}{deadline}")
+            deadline = f" - fällig {t['deadline']}" if t.get("deadline") else ""
+            lines.append(f"- [ ] {t.get('title', '')}{deadline}")
 
         lines += ["", f"### Kontakte ({len(contacts)})"]
         for c in contacts:
@@ -42,11 +42,12 @@ def render_briefing(project: dict, state: dict, version: int, changelog_entries:
         lines += ["", f"### Letzte Entscheidungen (max. {max_decisions})"]
         for d in recent_decisions:
             src = f" ({d.get('source_filename', '')})" if d.get("source_filename") else ""
-            lines.append(f"- {d.get('date', '')}: {d['title']}{src}")
+            lines.append(f"- {d.get('date', '')}: {d.get('title', '')}{src}")
 
         lines += ["", "### Aktive Blocker"]
         for b in blockers:
-            lines.append(f"- [{b.get('severity', 'medium')}] {b['title']}")
+            label = b.get("title") or b.get("description", "")
+            lines.append(f"- [{b.get('severity', 'medium')}] {label}")
 
         shown_changelog = changelog_entries[:max_changelog]
         lines += ["", "### Letzte Änderungen"]
