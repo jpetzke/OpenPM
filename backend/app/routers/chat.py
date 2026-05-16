@@ -23,6 +23,7 @@ from app.models.user import User
 from app.routers.app_settings import _KEY_EMBEDDINGS
 from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
 from app.services import briefing as briefing_service
+from app.services import git_service
 from app.services import llm as llm_service
 from app.services import qdrant_service
 from redis.asyncio import Redis as ARedis
@@ -344,7 +345,7 @@ async def _update_task_status(tool_args: dict, project_id: uuid.UUID, db: AsyncS
                 "name": project.name,
                 "client_name": project.client_name,
                 "status": project.status,
-                "updated_at": str(project.updated_at),
+                "updated_at": project.updated_at.isoformat(),
             },
             new_state_data,
             new_version,
@@ -352,6 +353,11 @@ async def _update_task_status(tool_args: dict, project_id: uuid.UUID, db: AsyncS
         )
         project.compiled_briefing = briefing_text
 
+    await db.commit()
+
+    commit_msg = f"chat_tool: task {task_id} set to {new_status}"
+    commit_hash = git_service.commit_state(str(project_id), new_state_data, commit_msg)
+    changelog.git_commit_hash = commit_hash
     await db.commit()
 
     return {

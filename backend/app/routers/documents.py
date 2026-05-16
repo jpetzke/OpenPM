@@ -235,7 +235,17 @@ async def reprocess_document(
     doc.processing_status = "pending"
     doc.processing_error = None
     doc.summary = None
-    doc.pipeline_logs = []
+    existing_logs = list(doc.pipeline_logs or [])
+    existing_logs.append({
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "step": 0,
+        "total": 10,
+        "label": "reprocess",
+        "status": "info",
+        "detail": "Neuverarbeitung gestartet",
+        "meta": {},
+    })
+    doc.pipeline_logs = existing_logs
     doc.pipeline_step = 0
     doc.pipeline_step_label = "pending"
     doc.pipeline_updated_at = datetime.now(timezone.utc)

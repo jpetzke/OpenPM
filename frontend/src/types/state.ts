@@ -3,7 +3,8 @@ export interface Task {
   title: string;
   status: "open" | "done" | "blocked";
   deadline?: string;
-  source?: string;
+  assignee?: string | null;
+  source_document_id?: string;
 }
 
 export interface Contact {
@@ -11,13 +12,14 @@ export interface Contact {
   name: string;
   role: string;
   email?: string;
+  phone?: string | null;
 }
 
 export interface Blocker {
   id?: string;
   title?: string;
-  description: string;
-  severity: "high" | "medium" | "low";
+  description?: string;
+  severity?: "high" | "medium" | "low";
   days_since?: number;
 }
 

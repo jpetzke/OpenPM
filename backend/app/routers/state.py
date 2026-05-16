@@ -166,7 +166,7 @@ async def update_task_status(
 
     if project:
         briefing_text = briefing_service.render_briefing(
-            {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": str(project.updated_at)},
+            {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": project.updated_at.isoformat()},
             new_state_data,
             new_version,
             changelog_dicts,
