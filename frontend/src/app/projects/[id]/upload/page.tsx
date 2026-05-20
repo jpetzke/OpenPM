@@ -3,6 +3,7 @@ import { use, useState } from "react";
 import { DropZone } from "@/components/upload/DropZone";
 import { DocumentList } from "@/components/upload/DocumentList";
 import { TextPasteModal } from "@/components/upload/TextPasteModal";
+import { EmbeddingHealthBanner } from "@/components/projects/EmbeddingHealthBanner";
 
 export default function UploadPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -10,6 +11,7 @@ export default function UploadPage({ params }: { params: Promise<{ id: string }>
 
   return (
     <div className="p-6 max-w-2xl">
+      <EmbeddingHealthBanner projectId={id} />
       <h2
         className="text-xs font-semibold uppercase tracking-widest mb-4"
         style={{ color: "var(--text-muted)" }}

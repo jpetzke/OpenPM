@@ -315,3 +315,35 @@ async def remove_member(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
     await db.delete(member)
     await db.commit()
+
+
+@router.get("/{project_id}/embeddings/status")
+async def embeddings_status(
+    project_id: uuid.UUID,
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Report whether the project's Qdrant collection dimension matches the
+    currently active embedding provider. Surfaced in the UI so users can
+    recover from provider switches that change vector dimensions."""
+    return await qdrant_service.collection_status(str(project_id))
+
+
+@router.post("/{project_id}/embeddings/recreate")
+async def embeddings_recreate(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(require_role("owner")),
+):
+    """Destructively recreate the Qdrant collection at the active embedding
+    provider's dimension. Existing vectors are lost; documents must be
+    re-uploaded or re-processed afterwards. Owner-only."""
+    try:
+        result = await qdrant_service.recreate_collection(str(project_id))
+    except Exception as exc:
+        log.error("embeddings_recreate_failed", project_id=str(project_id), error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"embeddings_recreate_failed: {exc}",
+        ) from exc
+    log.info("embeddings_recreated", project_id=str(project_id), dim=result.get("collection_dim"))
+    return result
