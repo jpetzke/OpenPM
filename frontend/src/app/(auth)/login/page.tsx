@@ -29,10 +29,10 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const { access_token } = await api.post<{ access_token: string; token_type: string }>(
-        "/auth/login",
+        "/api/auth/login",
         { email: data.email, password: data.password }
       );
-      const user = await api.getWithToken<User>("/auth/me", access_token);
+      const user = await api.getWithToken<User>("/api/auth/me", access_token);
       setAuth(user, access_token);
       router.push("/projects");
     } catch (err: unknown) {
@@ -91,7 +91,7 @@ export default function LoginPage() {
             type="submit"
             disabled={loading}
             className="w-full py-2 rounded-md text-sm font-medium transition-default disabled:opacity-50"
-            style={{ background: "var(--accent)", color: "#fff" }}
+            style={{ background: "var(--accent)", color: "var(--primary-foreground)" }}
           >
             {loading ? "..." : "Anmelden"}
           </button>

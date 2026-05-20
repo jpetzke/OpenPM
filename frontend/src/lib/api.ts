@@ -36,7 +36,7 @@ async function request<T>(
     toast.error("Datei zu groß (max. 50MB)");
     throw { status: 413, message: "File too large" } as ApiError;
   }
-  if (res.status >= 500) {
+  if (res.status >= 500 && res.status !== 503) {
     toast.error("Serverfehler, bitte erneut versuchen");
     throw { status: res.status, message: "Server error" } as ApiError;
   }
@@ -55,6 +55,8 @@ export const api = {
     request<T>(path, { method: "POST", body: body ? JSON.stringify(body) : undefined }),
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
+  put: <T>(path: string, body: unknown) =>
+    request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   delete: (path: string) => request<void>(path, { method: "DELETE" }),
   upload: <T>(path: string, formData: FormData) =>
     request<T>(path, { method: "POST", body: formData }),
