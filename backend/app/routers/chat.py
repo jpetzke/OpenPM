@@ -9,24 +9,24 @@ from typing import Any
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent_config import MAX_AGENT_ROUNDS
 from app.auth import get_current_user, get_project_member
-from app.config import settings as app_settings_config
 from app.database import get_db
 from app.models.document import Document
 from app.models.project import Project, ProjectMember
 from app.models.state import ChatMessage, ProjectState, StateChangelog
 from app.models.user import User
-from app.routers.app_settings import _KEY_EMBEDDINGS
+from app.routers.chat_tools import TOOL_ARG_MODELS
 from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
+from app.services.provider_resolver import get_active_provider
 from app.services import briefing as briefing_service
 from app.services import git_service
 from app.services import llm as llm_service
 from app.services import qdrant_service
-from redis.asyncio import Redis as ARedis
 
 router = APIRouter(prefix="/api/projects/{project_id}/chat", tags=["chat"])
 log = structlog.get_logger()
@@ -43,7 +43,13 @@ _TOOL_LIST_DOCUMENTS = {
             "List all documents in the project with their IDs, filenames, processing status, "
             "and summaries. Use this to discover which documents exist before fetching content."
         ),
-        "parameters": {"type": "object", "properties": {}},
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
     },
 }
 
@@ -55,7 +61,13 @@ _TOOL_GET_CURRENT_STATE = {
             "Return the complete current project state (tasks, contacts, deadlines, blockers, "
             "decisions, dynamic sections). Use when you need a live snapshot after an update."
         ),
-        "parameters": {"type": "object", "properties": {}},
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        },
     },
 }
 
@@ -64,15 +76,17 @@ _TOOL_GET_STATE_HISTORY = {
     "function": {
         "name": "get_state_history",
         "description": "Get recent state-change entries from the changelog. Shows what changed, when, and how.",
+        "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
                 "limit": {
-                    "type": "integer",
-                    "default": 10,
-                    "description": "Number of recent changes to retrieve (default 10, max 50)",
+                    "type": ["integer", "null"],
+                    "description": "Number of recent changes to retrieve (default 10 if null, max 50)",
                 }
             },
+            "required": ["limit"],
+            "additionalProperties": False,
         },
     },
 }
@@ -85,13 +99,18 @@ _TOOL_SEARCH_DOCUMENTS = {
             "Semantic search over project document contents. Use for specific questions about "
             "document details that are not captured in the state."
         ),
+        "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "Natural-language search query"},
-                "limit": {"type": "integer", "default": 5, "description": "Number of results (max 10)"},
+                "limit": {
+                    "type": ["integer", "null"],
+                    "description": "Number of results (default 5 if null, max 10)",
+                },
             },
-            "required": ["query"],
+            "required": ["query", "limit"],
+            "additionalProperties": False,
         },
     },
 }
@@ -104,10 +123,12 @@ _TOOL_GET_DOCUMENT_CONTENT = {
             "Fetch the full raw content of a specific document by its ID. "
             "Use list_documents first to find the correct document ID."
         ),
+        "strict": True,
         "parameters": {
             "type": "object",
             "properties": {"document_id": {"type": "string", "description": "UUID of the document"}},
             "required": ["document_id"],
+            "additionalProperties": False,
         },
     },
 }
@@ -120,6 +141,7 @@ _TOOL_UPDATE_TASK_STATUS = {
             "Update the status of a task in the project state. "
             "Use when the user wants to mark a task as done, blocked, or reopen it."
         ),
+        "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
@@ -131,6 +153,7 @@ _TOOL_UPDATE_TASK_STATUS = {
                 },
             },
             "required": ["task_id", "status"],
+            "additionalProperties": False,
         },
     },
 }
@@ -219,6 +242,15 @@ Nutze Tools proaktiv und intelligent:
 # ---------------------------------------------------------------------------
 
 async def _execute_tool(tool_name: str, tool_args: dict, project_id: uuid.UUID, db: AsyncSession) -> Any:
+    model_cls = TOOL_ARG_MODELS.get(tool_name)
+    if model_cls is None:
+        return {"error": f"Unknown tool: {tool_name}"}
+    try:
+        validated = model_cls.model_validate(tool_args).model_dump(exclude_none=True)
+    except ValidationError as exc:
+        return {"error": "invalid_arguments", "details": exc.errors()}
+    tool_args = validated
+
     if tool_name == "list_documents":
         result = await db.execute(
             select(Document)
@@ -251,7 +283,8 @@ async def _execute_tool(tool_name: str, tool_args: dict, project_id: uuid.UUID, 
         return {"version": state.version, "state": state.state}
 
     if tool_name == "get_state_history":
-        limit = min(int(tool_args.get("limit", 10)), 50)
+        limit_arg = tool_args.get("limit")
+        limit = min(int(limit_arg) if limit_arg is not None else 10, 50)
         result = await db.execute(
             select(StateChangelog)
             .where(StateChangelog.project_id == project_id)
@@ -271,9 +304,9 @@ async def _execute_tool(tool_name: str, tool_args: dict, project_id: uuid.UUID, 
         ]
 
     if tool_name == "search_documents":
-        results = await qdrant_service.search(
-            str(project_id), tool_args["query"], min(int(tool_args.get("limit", 5)), 10)
-        )
+        limit_arg = tool_args.get("limit")
+        limit = min(int(limit_arg) if limit_arg is not None else 5, 10)
+        results = await qdrant_service.search(str(project_id), tool_args["query"], limit)
         return [{"chunk_text": r.chunk_text, "source_filename": r.source_filename, "score": r.score} for r in results]
 
     if tool_name == "get_document_content":
@@ -500,10 +533,9 @@ async def chat(
     db.add(user_msg)
     await db.commit()
 
-    # Determine active tools (disable search if embeddings are off).
-    _redis = ARedis.from_url(app_settings_config.redis_url, decode_responses=True)
-    embeddings_flag = await _redis.get(_KEY_EMBEDDINGS)
-    active_tools = _TOOLS_WITHOUT_SEARCH if embeddings_flag == "0" else _ALL_TOOLS
+    # Determine active tools (disable search when no embedding provider is active).
+    embeddings_enabled = await get_active_provider("embedding", db) is not None
+    active_tools = _ALL_TOOLS if embeddings_enabled else _TOOLS_WITHOUT_SEARCH
 
     # Build message list for the LLM.
     system_prompt = _build_system_prompt(project, current_state, documents)
@@ -541,7 +573,18 @@ async def chat(
         except Exception as exc:
             error_occurred = True
             log.error("chat_stream_failed", project_id=str(project_id), error=str(exc))
-            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            raw = str(exc)
+            user_message = raw
+            error_code = "stream_failed"
+            lower = raw.lower()
+            if "u+2022" in lower or "•" in raw or "invalidcodepoint" in lower:
+                user_message = (
+                    "Provider-Konfiguration korrupt: gespeicherter API-Endpoint "
+                    "enthaelt ungueltige Zeichen. Bitte Provider in den Einstellungen "
+                    "neu speichern (alle Felder neu eingeben)."
+                )
+                error_code = "provider_config_corrupt"
+            yield f"data: {json.dumps({'type': 'error', 'code': error_code, 'message': user_message})}\n\n"
 
         # Save whatever we collected (partial or full).
         if collected:
@@ -584,8 +627,14 @@ async def get_chat_history(
         result_before = await db.execute(select(ChatMessage).where(ChatMessage.id == before))
         ref_msg = result_before.scalar_one_or_none()
         if ref_msg:
-            query = query.where(ChatMessage.created_at < ref_msg.created_at)
-    query = query.order_by(ChatMessage.created_at.asc()).limit(limit)
+            query = query.where(
+                (ChatMessage.created_at < ref_msg.created_at)
+                | (
+                    (ChatMessage.created_at == ref_msg.created_at)
+                    & (ChatMessage.id < ref_msg.id)
+                )
+            )
+    query = query.order_by(ChatMessage.created_at.asc(), ChatMessage.id.asc()).limit(limit)
     result = await db.execute(query)
     return result.scalars().all()
 
