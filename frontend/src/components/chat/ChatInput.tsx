@@ -106,7 +106,7 @@ export function ChatInput({
           <button
             onClick={onAbort}
             className="p-2 rounded-md transition-default shrink-0"
-            style={{ background: "var(--danger, #ef4444)", color: "#fff" }}
+            style={{ background: "var(--danger)", color: "var(--primary-foreground)" }}
             title="Abbrechen"
             aria-label="Abbrechen"
           >
@@ -117,7 +117,7 @@ export function ChatInput({
             onClick={submit}
             disabled={disabled}
             className="p-2 rounded-md transition-default disabled:opacity-40 shrink-0"
-            style={{ background: "var(--accent)", color: "#fff" }}
+            style={{ background: "var(--accent)", color: "var(--primary-foreground)" }}
             title="Senden (⌘↵)"
             aria-label="Senden"
           >

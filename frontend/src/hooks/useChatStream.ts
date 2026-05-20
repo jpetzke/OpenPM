@@ -11,7 +11,12 @@ export function useChatStream(projectId: string) {
     sending: false,
     streamingText: "",
     activeTools: [],
+    lastError: null,
   });
+
+  const clearError = useCallback(() => {
+    setState((prev) => (prev.lastError ? { ...prev, lastError: null } : prev));
+  }, []);
 
   const queuedText = useRef("");
   const rafRef = useRef<number | null>(null);
@@ -23,10 +28,21 @@ export function useChatStream(projectId: string) {
   const flushCompletionIfReady = useCallback(() => {
     if (queuedText.current || !streamClosedRef.current) return;
     streamClosedRef.current = false;
-    setState((prev) => ({ ...prev, streaming: false, sending: false, activeTools: [] }));
+    // Clear streamingText atomically with the streaming flag. The parent
+    // takes over rendering via an optimistic assistant message — keeping
+    // streamingText around past stream-end caused the "ghost duplicate" flash.
+    setState((prev) => ({
+      ...prev,
+      streaming: false,
+      sending: false,
+      streamingText: "",
+      activeTools: [],
+    }));
     const completion = completionRef.current;
     completionRef.current = null;
-    completion?.(fullTextRef.current, true);
+    // Defer to microtask so the streamingText="" commit lands before the
+    // parent invalidates / refetches the history query.
+    if (completion) queueMicrotask(() => completion(fullTextRef.current, true));
   }, []);
 
   useEffect(() => {
@@ -58,7 +74,7 @@ export function useChatStream(projectId: string) {
     streamClosedRef.current = false;
     const completion = completionRef.current;
     completionRef.current = null;
-    setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
+    setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
     // Return whatever was streamed so far so the caller can still show it.
     completion?.(fullTextRef.current, fullTextRef.current.length > 0);
   }, []);
@@ -78,7 +94,7 @@ export function useChatStream(projectId: string) {
       streamClosedRef.current = false;
       fullTextRef.current = "";
       completionRef.current = onComplete;
-      setState({ streaming: false, sending: true, streamingText: "", activeTools: [] });
+      setState({ streaming: false, sending: true, streamingText: "", activeTools: [], lastError: null });
 
       try {
         const body: Record<string, unknown> = { content };
@@ -96,7 +112,7 @@ export function useChatStream(projectId: string) {
 
         if (!res.ok || !res.body) {
           completionRef.current = null;
-          setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
+          setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
           onComplete("", false);
           return;
         }
@@ -143,8 +159,20 @@ export function useChatStream(projectId: string) {
                 queuedText.current = "";
                 streamClosedRef.current = false;
                 completionRef.current = null;
-                setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
-                toast.error(data.message || "Chat-Antwort fehlgeschlagen");
+                const msg = data.message || "Chat-Antwort fehlgeschlagen";
+                const code = typeof data.code === "string" ? data.code : "stream_failed";
+                setState({
+                  streaming: false,
+                  sending: false,
+                  streamingText: "",
+                  activeTools: [],
+                  lastError: { code, message: msg },
+                });
+                // Suppress toast for actionable banner-worthy errors — the in-chat
+                // banner is more useful than a transient toast for these.
+                if (code !== "provider_config_corrupt") {
+                  toast.error(msg);
+                }
                 onComplete(fullTextRef.current, false);
               }
             } catch {
@@ -156,7 +184,7 @@ export function useChatStream(projectId: string) {
         // AbortError means the user cancelled — not a real error.
         if (err instanceof Error && err.name === "AbortError") return;
         completionRef.current = null;
-        setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
+        setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
         toast.error("Netzwerkfehler beim Chat");
         onComplete(fullTextRef.current, false);
         return;
@@ -166,12 +194,12 @@ export function useChatStream(projectId: string) {
       if (completionRef.current) {
         const completion = completionRef.current;
         completionRef.current = null;
-        setState({ streaming: false, sending: false, streamingText: "", activeTools: [] });
-        completion(fullTextRef.current, fullTextRef.current.length > 0);
+        setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
+        queueMicrotask(() => completion(fullTextRef.current, fullTextRef.current.length > 0));
       }
     },
     [flushCompletionIfReady, projectId, token],
   );
 
-  return { ...state, sendMessage, abort };
+  return { ...state, sendMessage, abort, clearError };
 }

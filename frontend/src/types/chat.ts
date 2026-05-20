@@ -11,14 +11,21 @@ export interface ChatMessage {
   created_at: string;
 }
 
+export interface ChatStreamError {
+  code: string;
+  message: string;
+}
+
 export interface ChatStreamState {
   streaming: boolean;
   sending: boolean;
   streamingText: string;
   activeTools: string[];
+  lastError: ChatStreamError | null;
 }
 
 export interface ModelInfo {
   id: string;
   label: string;
+  role: "chat" | "extraction" | "embedding";
 }
