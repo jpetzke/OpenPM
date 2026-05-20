@@ -63,9 +63,9 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
             fällig {formatDate(task.deadline)}
           </p>
         )}
-        {task.source && (
+        {task.source_document_id && (
           <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-            {task.source}
+            {task.source_document_id}
           </p>
         )}
       </div>
