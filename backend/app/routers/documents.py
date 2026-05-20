@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
+import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,16 +14,26 @@ from app.models.project import ProjectMember
 from app.models.user import User
 from app.schemas.document import DocumentResponse, TextDocumentCreate
 from app.services import storage as storage_service
+from app.services.provider_resolver import get_active_provider
+
+log = structlog.get_logger()
 
 router = APIRouter(prefix="/api/projects/{project_id}/documents", tags=["documents"])
 
 
 async def _enqueue_pipeline(document_id: str) -> None:
-    from arq import create_pool
-    from arq.connections import RedisSettings
-    redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-    await redis.enqueue_job("process_document", document_id)
-    await redis.aclose()
+    try:
+        from arq import create_pool
+        from arq.connections import RedisSettings
+        redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        await redis.enqueue_job("process_document", document_id)
+        await redis.aclose()
+    except Exception as exc:
+        log.error("enqueue_pipeline_failed", document_id=document_id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="queue_unavailable",
+        ) from exc
 
 
 async def _schedule_batch(project_id: str, doc_id: str) -> None:
@@ -32,17 +43,24 @@ async def _schedule_batch(project_id: str, doc_id: str) -> None:
     10 seconds after the *last* upload in the window. Each upload enqueues its own
     deferred ARQ job; jobs that arrive before the window closes exit immediately.
     """
-    import time
-    from arq import create_pool
-    from arq.connections import RedisSettings
-    redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
-    await redis.sadd(f"pending_batch:{project_id}", doc_id)
-    # Always overwrite the trigger timestamp — this is what resets the clock
-    trigger_at = time.time() + 10
-    await redis.set(f"batch_trigger:{project_id}", str(trigger_at), ex=30)
-    # Each upload schedules its own check job; most will exit early
-    await redis.enqueue_job("process_project_batch", project_id, _defer_by=11)
-    await redis.aclose()
+    try:
+        import time
+        from arq import create_pool
+        from arq.connections import RedisSettings
+        redis = await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        await redis.sadd(f"pending_batch:{project_id}", doc_id)
+        # Always overwrite the trigger timestamp — this is what resets the clock
+        trigger_at = time.time() + 10
+        await redis.set(f"batch_trigger:{project_id}", str(trigger_at), ex=30)
+        # Each upload schedules its own check job; most will exit early
+        await redis.enqueue_job("process_project_batch", project_id, _defer_by=11)
+        await redis.aclose()
+    except Exception as exc:
+        log.error("enqueue_pipeline_failed", document_id=doc_id, project_id=project_id, error=str(exc))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="queue_unavailable",
+        ) from exc
 
 
 async def _get_doc_or_404(project_id: uuid.UUID, doc_id: uuid.UUID, db: AsyncSession) -> Document:
@@ -63,6 +81,12 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
     _member: ProjectMember = Depends(get_project_member),
 ):
+    if await get_active_provider("llm", db) is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="no_active_llm_provider",
+        )
+
     file_bytes = await file.read()
     if len(file_bytes) > settings.max_upload_bytes:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="File too large")
@@ -108,6 +132,12 @@ async def create_text_document(
     current_user: User = Depends(get_current_user),
     _member: ProjectMember = Depends(get_project_member),
 ):
+    if await get_active_provider("llm", db) is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="no_active_llm_provider",
+        )
+
     content_bytes = payload.content.encode("utf-8")
     original_path = storage_service.save_document(str(project_id), content_bytes, f"{payload.title}.txt")
 
@@ -216,8 +246,14 @@ async def delete_document(
     storage_service.delete_document(doc.original_path)
     try:
         await qdrant_service.delete_by_document(str(project_id), str(doc_id))
-    except Exception:
-        pass
+    except Exception as exc:
+        log.error(
+            "qdrant_delete_failed",
+            project_id=str(project_id),
+            document_id=str(doc_id),
+            error=str(exc),
+            exc_info=True,
+        )
     await db.delete(doc)
     await db.commit()
 

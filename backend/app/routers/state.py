@@ -16,7 +16,7 @@ from app.services.state_manager import compute_delta
 router = APIRouter(prefix="/api/projects/{project_id}/state", tags=["state"])
 
 
-@router.get("", response_model=ProjectStateResponse)
+@router.get("", response_model=ProjectStateResponse | None)
 async def get_current_state(
     project_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -30,7 +30,7 @@ async def get_current_state(
     )
     state = result.scalar_one_or_none()
     if not state:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No state found")
+        return None
     return state
 
 
