@@ -15,6 +15,12 @@ class ProjectUpdate(BaseModel):
     status: str | None = None
 
 
+class ProjectMemberOut(BaseModel):
+    id: str
+    name: str | None = None
+    email: str
+
+
 class ProjectResponse(BaseModel):
     model_config = {"from_attributes": True}
 
@@ -26,6 +32,9 @@ class ProjectResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     created_by: uuid.UUID
+    document_count: int = 0
+    open_task_count: int | None = None
+    members: list[ProjectMemberOut] = []
 
 
 class ProjectMemberResponse(BaseModel):

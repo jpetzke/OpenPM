@@ -1,3 +1,9 @@
+export interface ProjectMember {
+  id: string;
+  name?: string | null;
+  email: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -7,9 +13,17 @@ export interface Project {
   created_at: string;
   updated_at: string;
   created_by: string;
+  document_count?: number;
+  open_task_count?: number | null;
+  members?: ProjectMember[];
 }
 
-export interface ProjectMember {
+/**
+ * Membership row (join between user and project).
+ * Renamed from the previous `ProjectMember` to avoid collision with the
+ * lightweight member shape returned by `GET /api/projects`.
+ */
+export interface ProjectMembership {
   id: string;
   project_id: string;
   user_id: string;
