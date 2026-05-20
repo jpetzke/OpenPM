@@ -1,11 +1,13 @@
 "use client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { usePathname } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
 import type { Project } from "@/types/project";
 import { ProjectTabs } from "./ProjectTabs";
+import { Breadcrumbs } from "./Breadcrumbs";
 
 interface ProjectHeaderProps {
   project: Project;
@@ -25,8 +27,17 @@ function statusDotColor(s: string) {
   return "var(--text-disabled)";
 }
 
+function getTabLabel(pathname: string): string {
+  if (pathname.endsWith("/upload")) return "Upload";
+  if (pathname.endsWith("/state")) return "State";
+  if (pathname.endsWith("/chat")) return "Chat";
+  return "";
+}
+
 export function ProjectHeader({ project }: ProjectHeaderProps) {
   const qc = useQueryClient();
+  const pathname = usePathname();
+  const tabLabel = getTabLabel(pathname ?? "");
 
   const updateMutation = useMutation({
     mutationFn: (status: string) =>
@@ -43,7 +54,16 @@ export function ProjectHeader({ project }: ProjectHeaderProps) {
       className="shrink-0 border-b"
       style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
     >
-      <div className="px-6 pt-4 pb-0">
+      <div className="px-6 pt-3 pb-1">
+        <Breadcrumbs
+          items={[
+            { label: "Projekte", href: "/projects" },
+            { label: project.name },
+            ...(tabLabel ? [{ label: tabLabel }] : []),
+          ]}
+        />
+      </div>
+      <div className="px-6 pt-1 pb-0">
         <div className="flex items-center justify-between mb-0.5">
           <h1 className="text-lg font-semibold" style={{ color: "var(--text-primary)" }}>
             {project.name}

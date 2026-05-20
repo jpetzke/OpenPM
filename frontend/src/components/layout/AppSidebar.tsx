@@ -3,9 +3,11 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { Plus, LogOut, Loader2, Settings } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
-import { usePipelineStore } from "@/store/pipelineStore";
+import { usePipelineStore, getProjectPipelineSummary } from "@/store/pipelineStore";
+import type { PipelineStore } from "@/store/pipelineStore";
 import type { Project } from "@/types/project";
 
 function statusDotColor(status: string) {
@@ -22,7 +24,17 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, clearAuth, token } = useAuthStore();
-  const pipelines = usePipelineStore((s) => s.pipelines);
+  // Subscribe only to the slices needed for per-project summaries. useShallow
+  // prevents the sidebar from re-rendering on every unrelated store update.
+  const pipelineSlice = usePipelineStore(
+    useShallow((s) => ({
+      batchState: s.batchState,
+      pipelines: s.pipelines,
+      details: s.details,
+      docProject: s.docProject,
+    }))
+  );
+  const pipelineState = pipelineSlice as unknown as PipelineStore;
 
   const { data: projects } = useQuery<Project[]>({
     queryKey: ["projects"],
@@ -34,17 +46,13 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
 
   const handleLogout = async () => {
     try {
-      await api.post("/auth/logout");
+      await api.post("/api/auth/logout");
     } catch {
       // ignore errors
     }
     clearAuth();
     router.push("/login");
   };
-
-  const hasProcessingForCurrentProject = currentProjectId
-    ? Object.values(pipelines).some((s) => s === "processing")
-    : false;
 
   return (
     <aside
@@ -69,7 +77,9 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
         </div>
         {sorted.map((p) => {
           const isActive = p.id === currentProjectId;
-          const isProcessing = isActive && hasProcessingForCurrentProject;
+          const summary = getProjectPipelineSummary(pipelineState, p.id);
+          const isProcessing =
+            summary.processingCount > 0 || summary.pendingCount > 0;
           return (
             <Link
               key={p.id}

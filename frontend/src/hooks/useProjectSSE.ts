@@ -56,30 +56,34 @@ export function useProjectSSE(projectId: string) {
                 const data = JSON.parse(raw);
                 switch (data.event) {
                   case "pipeline_started":
-                    setPipelineStatus(data.document_id, "processing");
-                    pushPipelineEvent(data.document_id, {
-                      step: data.step ?? 1,
-                      total: data.total ?? 10,
-                      label: data.label ?? "queued",
-                      status: "running",
-                      detail: "Dokumentverarbeitung gestartet",
-                      timestamp: data.timestamp ?? new Date().toISOString(),
-                    });
+                    setPipelineStatus(data.document_id, "processing", projectId);
+                    pushPipelineEvent(
+                      data.document_id,
+                      {
+                        step: data.step ?? 1,
+                        total: data.total ?? 10,
+                        label: data.label ?? "queued",
+                        status: "running",
+                        detail: "Dokumentverarbeitung gestartet",
+                        timestamp: data.timestamp ?? new Date().toISOString(),
+                      },
+                      projectId,
+                    );
                     qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
                     break;
                   case "pipeline_progress":
-                    pushPipelineEvent(data.document_id, data);
+                    pushPipelineEvent(data.document_id, data, projectId);
                     qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
                     break;
                   case "pipeline_complete":
-                    setPipelineStatus(data.document_id, "done");
-                    pushPipelineEvent(data.document_id, data);
+                    setPipelineStatus(data.document_id, "done", projectId);
+                    pushPipelineEvent(data.document_id, data, projectId);
                     qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
                     qc.invalidateQueries({ queryKey: ["projects", projectId, "state"] });
                     break;
                   case "pipeline_failed":
-                    setPipelineStatus(data.document_id, "failed");
-                    pushPipelineEvent(data.document_id, data);
+                    setPipelineStatus(data.document_id, "failed", projectId);
+                    pushPipelineEvent(data.document_id, data, projectId);
                     qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
                     toast.error(`Verarbeitung fehlgeschlagen: ${data.error || "Unbekannter Fehler"}`);
                     break;

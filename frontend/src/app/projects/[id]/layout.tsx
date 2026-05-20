@@ -8,6 +8,7 @@ import { useProjectSSE } from "@/hooks/useProjectSSE";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { ProjectHeader } from "@/components/layout/ProjectHeader";
 import { CommandPalette } from "@/components/layout/CommandPalette";
+import { GlobalStatusBar } from "@/components/layout/GlobalStatusBar";
 import type { Project } from "@/types/project";
 
 export default function ProjectLayout({
@@ -67,6 +68,7 @@ export default function ProjectLayout({
             style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
           />
         )}
+        <GlobalStatusBar projectId={id} />
         <main className="flex-1 overflow-y-auto">
           {children}
         </main>

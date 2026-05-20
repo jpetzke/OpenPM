@@ -91,7 +91,7 @@ export function TextPasteModal({ projectId, onClose }: TextPasteModalProps) {
               onClick={submit}
               disabled={!title.trim() || !content.trim() || loading}
               className="px-3 py-1.5 rounded-md text-sm font-medium transition-default disabled:opacity-50"
-              style={{ background: "var(--accent)", color: "#fff" }}
+              style={{ background: "var(--accent)", color: "var(--primary-foreground)" }}
             >
               {loading ? "..." : "Speichern"}
             </button>

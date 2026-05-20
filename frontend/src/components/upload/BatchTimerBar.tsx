@@ -1,61 +1,31 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
 import { Pause, Play, Zap } from "lucide-react";
-import { api } from "@/lib/api";
-import type { Document } from "@/types/document";
 
-const WINDOW_S = 10;
-
-interface BatchTimerBarProps {
-  projectId: string;
-  pendingDocs: Document[];
-  onTriggered?: () => void;
+export interface BatchTimerBarProps {
+  pendingCount: number;
+  remaining: number;
+  windowS: number;
+  paused: boolean;
+  onTriggerNow: () => void;
+  onTogglePause: () => void;
 }
 
-export function BatchTimerBar({ projectId, pendingDocs, onTriggered }: BatchTimerBarProps) {
-  const [remaining, setRemaining] = useState(WINDOW_S);
-  const [paused, setPaused] = useState(false);
-  const prevIdsRef = useRef("");
+/**
+ * Presentational primitive — purely renders the batch countdown row.
+ * All store/api/timer plumbing lives in the parent (GlobalStatusBar).
+ */
+export function BatchTimerBar({
+  pendingCount,
+  remaining,
+  windowS,
+  paused,
+  onTriggerNow,
+  onTogglePause,
+}: BatchTimerBarProps) {
+  if (pendingCount === 0) return null;
 
-  // Reset the countdown whenever the set of pending docs changes (new upload arrived)
-  useEffect(() => {
-    const ids = pendingDocs.map((d) => d.id).sort().join(",");
-    if (ids === prevIdsRef.current) return;
-    prevIdsRef.current = ids;
-    if (pendingDocs.length > 0 && !paused) setRemaining(WINDOW_S);
-  }, [pendingDocs, paused]);
-
-  // Tick every second while not paused
-  useEffect(() => {
-    if (paused || pendingDocs.length === 0 || remaining <= 0) return;
-    const t = setTimeout(() => setRemaining((r) => Math.max(0, r - 1)), 1000);
-    return () => clearTimeout(t);
-  }, [paused, pendingDocs.length, remaining]);
-
-  const skip = useCallback(async () => {
-    setRemaining(0);
-    try {
-      await api.post(`/api/projects/${projectId}/documents/batch/trigger`);
-      onTriggered?.();
-    } catch {}
-  }, [projectId, onTriggered]);
-
-  const togglePause = useCallback(async () => {
-    try {
-      if (paused) {
-        await api.post(`/api/projects/${projectId}/documents/batch/resume`);
-        setPaused(false);
-        setRemaining(WINDOW_S);
-      } else {
-        await api.post(`/api/projects/${projectId}/documents/batch/pause`);
-        setPaused(true);
-      }
-    } catch {}
-  }, [paused, projectId]);
-
-  if (pendingDocs.length === 0) return null;
-
-  const fillPct = ((WINDOW_S - remaining) / WINDOW_S) * 100;
+  const safeWindow = windowS > 0 ? windowS : 1;
+  const fillPct = Math.min(100, Math.max(0, ((safeWindow - remaining) / safeWindow) * 100));
   const label =
     remaining === 0
       ? "Wird gestartet…"
@@ -64,12 +34,9 @@ export function BatchTimerBar({ projectId, pendingDocs, onTriggered }: BatchTime
         : `Verarbeitung in ${remaining}s`;
 
   return (
-    <div
-      className="rounded-lg mb-2 overflow-hidden"
-      style={{ border: "1px solid var(--border)", background: "var(--bg-elevated)" }}
-    >
+    <div className="w-full h-full flex flex-col">
       {/* progress strip */}
-      <div className="h-[2px]" style={{ background: "var(--border)" }}>
+      <div className="h-[2px] shrink-0" style={{ background: "var(--border)" }}>
         <div
           className="h-full"
           style={{
@@ -80,13 +47,13 @@ export function BatchTimerBar({ projectId, pendingDocs, onTriggered }: BatchTime
         />
       </div>
 
-      <div className="flex items-center gap-2 px-3 py-2">
+      <div className="flex flex-1 items-center gap-2 px-3">
         <span className="flex-1 text-xs tabular-nums" style={{ color: "var(--text-muted)" }}>
-          {pendingDocs.length} Dokument{pendingDocs.length !== 1 ? "e" : ""} · {label}
+          {pendingCount} Dokument{pendingCount !== 1 ? "e" : ""} · {label}
         </span>
 
         <button
-          onClick={skip}
+          onClick={onTriggerNow}
           title="Jetzt verarbeiten"
           className="flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-default hover:opacity-70"
           style={{ color: "var(--accent)" }}
@@ -96,7 +63,7 @@ export function BatchTimerBar({ projectId, pendingDocs, onTriggered }: BatchTime
         </button>
 
         <button
-          onClick={togglePause}
+          onClick={onTogglePause}
           title={paused ? "Fortsetzen" : "Pausieren"}
           className="rounded p-1 transition-default hover:opacity-70"
           style={{ color: "var(--text-muted)" }}
