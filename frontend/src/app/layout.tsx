@@ -19,12 +19,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </QueryProvider>
         <Toaster
           position="bottom-right"
+          theme="dark"
           toastOptions={{
+            classNames: {
+              toast: "rounded-[10px] border shadow-lg",
+              success: "border-l-2 border-l-[var(--success)]",
+              error: "border-l-2 border-l-[var(--danger)]",
+              warning: "border-l-2 border-l-[var(--warning)]",
+            },
             style: {
               background: "var(--bg-overlay)",
-              border: "1px solid var(--border-strong)",
               color: "var(--text-primary)",
               fontSize: "13px",
+              border: "1px solid var(--border-strong)",
             },
           }}
         />
