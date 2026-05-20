@@ -17,8 +17,8 @@ from app.models.document import Document
 from app.models.project import Project
 from app.models.state import ProjectState, StateChangelog
 from app.services import briefing as briefing_service
-from app.routers.app_settings import _KEY_EMBEDDINGS
 from app.services import git_service, qdrant_service
+from app.services.provider_resolver import get_active_provider
 from app.services.extraction import extract_state_delta, parse_document, summarize_document
 from app.services.state_manager import compute_delta, merge_state
 
@@ -89,11 +89,14 @@ async def process_document(ctx: dict, document_id: str) -> None:
 
 
 async def process_project_batch(ctx: dict, project_id: str) -> None:
-    """Process all documents queued in the pending batch for a project as one state update.
+    """Process all documents queued in the pending batch for a project.
 
     Each upload enqueues its own deferred job and refreshes the trigger timestamp.
     Jobs that arrive while more uploads are expected exit early — only the job that
     runs after the 10-second idle window actually processes the batch.
+
+    Documents are processed sequentially; each commits independently so the UI
+    reflects each document's completion as it happens rather than at batch end.
     """
     import time as _time
     redis = ctx["redis"]
@@ -108,8 +111,6 @@ async def process_project_batch(ctx: dict, project_id: str) -> None:
             return
 
     batch_key = f"pending_batch:{project_id}"
-    # Atomically hand off the pending set to a private key so uploads during
-    # processing land in a fresh set and get their own subsequent batch job.
     temp_key = f"processing_batch:{project_id}:{uuid.uuid4().hex}"
     try:
         await redis.rename(batch_key, temp_key)
@@ -133,7 +134,7 @@ async def process_project_batch(ctx: dict, project_id: str) -> None:
         if not docs:
             return
 
-        # Mark all as processing
+        # Mark all as processing upfront so UI shows them as in-progress immediately
         for doc in docs:
             doc.processing_status = "processing"
             doc.pipeline_logs = []
@@ -143,10 +144,15 @@ async def process_project_batch(ctx: dict, project_id: str) -> None:
 
         from app.services.storage import get_document_bytes
 
+        embeddings_enabled = await get_active_provider("embedding", db) is not None
+
+        # Load project once — metadata doesn't change during the batch
+        proj_result = await db.execute(select(Project).where(Project.id == project_uuid))
+        project = proj_result.scalar_one_or_none()
+
+        # Phase 1: parse all documents (fast, I/O-bound) — batch commit at end
         parse_results: list[tuple[Document, str, dict, list[str]]] = []
         failed_docs: list[Document] = []
-
-        # Phase 1: parse all documents (each with its own log events)
         for doc in docs:
             try:
                 await _log_pipeline(db, redis, channel, doc, step=1, total=10, label="queued", status="done", detail="Dokumentverarbeitung gestartet")
@@ -172,142 +178,147 @@ async def process_project_batch(ctx: dict, project_id: str) -> None:
         if not parse_results:
             return
 
-        # Phase 2: summarize each document (LLM step 1 per doc)
-        for doc, raw_content, _metadata, _chunks in parse_results:
-            await _log_pipeline(db, redis, channel, doc, step=3, total=10, label="summarizing", status="running", detail="LLM erstellt Zusammenfassung")
-            doc.summary = await summarize_document(raw_content)
-            await db.flush()
-            await _log_pipeline(db, redis, channel, doc, step=3, total=10, label="summarizing", status="done", detail="Zusammenfassung erstellt", meta={"summary_length": len(doc.summary or "")})
-        await db.commit()
+        # Phase 2+: process each document fully, committing after each one.
+        # pg_advisory_xact_lock is re-acquired per-document (released on each commit).
+        # Each document sees the latest committed state so delta accumulation is correct.
+        for doc, raw_content, _metadata, chunks in parse_results:
+            try:
+                # Summarize
+                await _log_pipeline(db, redis, channel, doc, step=3, total=10, label="summarizing", status="running", detail="LLM erstellt Zusammenfassung")
+                doc.summary = await summarize_document(raw_content)
+                await db.flush()
+                await _log_pipeline(db, redis, channel, doc, step=3, total=10, label="summarizing", status="done", detail="Zusammenfassung erstellt", meta={"summary_length": len(doc.summary or "")})
 
-        # Phase 3: state extraction — advisory lock, one version for the whole batch
-        lock_key = project_uuid.int & 0x7FFFFFFFFFFFFFFF
-        await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+                # State extraction — acquire advisory lock for this document's state write
+                lock_key = project_uuid.int & 0x7FFFFFFFFFFFFFFF
+                await db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
 
-        state_result = await db.execute(
-            select(ProjectState)
-            .where(ProjectState.project_id == project_uuid)
-            .order_by(ProjectState.version.desc())
-            .limit(1)
-        )
-        current_state_obj = state_result.scalar_one_or_none()
-        current_state = current_state_obj.state if current_state_obj else {}
-        current_version = current_state_obj.version if current_state_obj else 0
+                state_result = await db.execute(
+                    select(ProjectState)
+                    .where(ProjectState.project_id == project_uuid)
+                    .order_by(ProjectState.version.desc())
+                    .limit(1)
+                )
+                current_state_obj = state_result.scalar_one_or_none()
+                current_state = current_state_obj.state if current_state_obj else {}
+                current_version = current_state_obj.version if current_state_obj else 0
 
-        for doc, _, _, _ in parse_results:
-            await _log_pipeline(db, redis, channel, doc, step=4, total=10, label="state_load", status="done", detail="Projekt-State geladen", meta={"current_version": current_version})
+                await _log_pipeline(db, redis, channel, doc, step=4, total=10, label="state_load", status="done", detail="Projekt-State geladen", meta={"current_version": current_version})
 
-        # Extract and accumulate deltas sequentially (each doc sees the merged state so far)
-        accumulated_state = current_state
-        for doc, raw_content, _, _ in parse_results:
-            await _log_pipeline(db, redis, channel, doc, step=5, total=10, label="state_extraction", status="running", detail="LLM extrahiert State-Delta")
-            delta = await extract_state_delta(raw_content, accumulated_state or None)
-            accumulated_state = merge_state(accumulated_state, delta)
-            await _log_pipeline(db, redis, channel, doc, step=5, total=10, label="state_extraction", status="done", detail="State-Delta erzeugt", meta={"dynamic_sections": len(delta.get("dynamic_sections") or [])})
+                await _log_pipeline(db, redis, channel, doc, step=5, total=10, label="state_extraction", status="running", detail="LLM extrahiert State-Delta")
+                delta = await extract_state_delta(raw_content, current_state or None)
+                new_state = merge_state(current_state, delta)
+                await _log_pipeline(db, redis, channel, doc, step=5, total=10, label="state_extraction", status="done", detail="State-Delta erzeugt", meta={"dynamic_sections": len(delta.get("dynamic_sections") or [])})
 
-        new_state = accumulated_state
+                await _log_pipeline(db, redis, channel, doc, step=6, total=10, label="state_merge", status="done", detail="Delta in Projekt-State integriert")
 
-        for doc, _, _, _ in parse_results:
-            await _log_pipeline(db, redis, channel, doc, step=6, total=10, label="state_merge", status="done", detail="Delta in Projekt-State integriert")
+                # Write state version
+                new_version = current_version + 1
+                stmt = (
+                    pg_insert(ProjectState)
+                    .values(
+                        id=uuid.uuid4(),
+                        project_id=project_uuid,
+                        version=new_version,
+                        state=new_state,
+                        triggered_by_document_id=doc.id,
+                    )
+                    .on_conflict_do_update(
+                        constraint="project_state_version_unique",
+                        set_={"state": new_state, "triggered_by_document_id": doc.id},
+                    )
+                    .returning(ProjectState)
+                )
+                state_write_result = await db.execute(stmt)
+                new_version = state_write_result.scalar_one().version
+                await db.flush()
+                await _log_pipeline(db, redis, channel, doc, step=7, total=10, label="state_persist", status="done", detail="Neue State-Version gespeichert", meta={"new_version": new_version})
 
-        # Write ONE state version for the whole batch
-        primary_doc = parse_results[0][0]
-        new_version = current_version + 1
-        stmt = (
-            pg_insert(ProjectState)
-            .values(
-                id=uuid.uuid4(),
-                project_id=project_uuid,
-                version=new_version,
-                state=new_state,
-                triggered_by_document_id=primary_doc.id,
-            )
-            .on_conflict_do_update(
-                constraint="project_state_version_unique",
-                set_={"state": new_state, "triggered_by_document_id": primary_doc.id},
-            )
-            .returning(ProjectState)
-        )
-        result = await db.execute(stmt)
-        new_state_obj = result.scalar_one()
-        new_version = new_state_obj.version
-        await db.flush()
+                # Changelog
+                computed_delta = compute_delta(current_state, new_state)
+                changelog = StateChangelog(
+                    project_id=project_uuid,
+                    from_version=current_version if current_version > 0 else None,
+                    to_version=new_version,
+                    delta=computed_delta,
+                    document_id=doc.id,
+                    triggered_by="pipeline",
+                )
+                db.add(changelog)
+                await db.flush()
+                await _log_pipeline(db, redis, channel, doc, step=8, total=10, label="changelog", status="done", detail="Changelog erzeugt")
 
-        for doc, _, _, _ in parse_results:
-            await _log_pipeline(db, redis, channel, doc, step=7, total=10, label="state_persist", status="done", detail="Neue State-Version gespeichert", meta={"new_version": new_version})
+                # Git commit
+                commit_summary_parts = []
+                for key, items in computed_delta.get("added", {}).items():
+                    commit_summary_parts.append(f"{len(items)} {key.split('.')[-1]} added")
+                commit_msg = f"upload({doc.original_filename}): {', '.join(commit_summary_parts) or 'state updated'}"
+                commit_hash = git_service.commit_state(project_id, new_state, commit_msg)
+                doc.git_commit_hash = commit_hash
+                changelog.git_commit_hash = commit_hash
+                await _log_pipeline(db, redis, channel, doc, step=9, total=10, label="git_commit", status="done", detail="State in Git gesichert", meta={"commit_hash": commit_hash})
 
-        # Changelog
-        computed_delta = compute_delta(current_state, new_state)
-        changelog = StateChangelog(
-            project_id=project_uuid,
-            from_version=current_version if current_version > 0 else None,
-            to_version=new_version,
-            delta=computed_delta,
-            document_id=primary_doc.id,
-            triggered_by="pipeline",
-        )
-        db.add(changelog)
-        await db.flush()
+                # Embeddings
+                if chunks and embeddings_enabled:
+                    await qdrant_service.upsert_chunks(project_id, chunks, str(doc.id), doc.original_filename)
+                await _log_pipeline(db, redis, channel, doc, step=10, total=10, label="embeddings", status="done", detail="Embeddings verarbeitet", meta={"enabled": embeddings_enabled, "chunk_count": len(chunks)})
 
-        for doc, _, _, _ in parse_results:
-            await _log_pipeline(db, redis, channel, doc, step=8, total=10, label="changelog", status="done", detail="Changelog erzeugt")
+                # Briefing
+                recent_cl_result = await db.execute(
+                    select(StateChangelog).where(StateChangelog.project_id == project_uuid).order_by(StateChangelog.created_at.desc()).limit(3)
+                )
+                cl_dicts = [{"to_version": c.to_version, "triggered_by": c.triggered_by} for c in recent_cl_result.scalars().all()]
+                if project:
+                    briefing_text = briefing_service.render_briefing(
+                        {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": project.updated_at.isoformat()},
+                        new_state, new_version, cl_dicts,
+                    )
+                    project.compiled_briefing = briefing_text
+                await _log_pipeline(db, redis, channel, doc, step=10, total=10, label="briefing", status="done", detail="Projekt-Briefing aktualisiert")
 
-        # Git commit
-        doc_names = [d.original_filename for d, _, _, _ in parse_results]
-        commit_summary_parts = []
-        for key, items in computed_delta.get("added", {}).items():
-            commit_summary_parts.append(f"{len(items)} {key.split('.')[-1]} added")
-        prefix = f"upload({doc_names[0]})" if len(doc_names) == 1 else f"batch_upload({len(doc_names)} docs)"
-        commit_msg = f"{prefix}: {', '.join(commit_summary_parts) or 'state updated'}"
-        commit_hash = git_service.commit_state(project_id, new_state, commit_msg)
+                # Mark done and commit — releases advisory lock, makes doc visible in UI
+                doc.processing_status = "done"
+                doc.pipeline_step = 10
+                doc.pipeline_step_label = "complete"
+                doc.pipeline_updated_at = datetime.now(timezone.utc)
+                await db.commit()
 
-        for doc, _, _, _ in parse_results:
-            doc.git_commit_hash = commit_hash
-            await _log_pipeline(db, redis, channel, doc, step=9, total=10, label="git_commit", status="done", detail="State in Git gesichert", meta={"commit_hash": commit_hash})
-        changelog.git_commit_hash = commit_hash
-        await db.commit()
+                await _publish(redis, channel, {
+                    "event": "pipeline_complete",
+                    "document_id": str(doc.id),
+                    "state_version": new_version,
+                    "step": 10, "total": 10, "label": "complete", "status": "done",
+                    "timestamp": _timestamp(),
+                })
 
-        # Embeddings
-        embeddings_flag = await redis.get(_KEY_EMBEDDINGS)
-        for doc, _, _, chunks in parse_results:
-            if chunks and embeddings_flag != "0":
-                await qdrant_service.upsert_chunks(project_id, chunks, str(doc.id), doc.original_filename)
-            await _log_pipeline(db, redis, channel, doc, step=10, total=10, label="embeddings", status="done", detail="Embeddings verarbeitet", meta={"enabled": embeddings_flag != "0", "chunk_count": len(chunks)})
-
-        # Briefing
-        proj_result = await db.execute(select(Project).where(Project.id == project_uuid))
-        project = proj_result.scalar_one_or_none()
-        recent_cl_result = await db.execute(
-            select(StateChangelog).where(StateChangelog.project_id == project_uuid).order_by(StateChangelog.created_at.desc()).limit(3)
-        )
-        cl_dicts = [{"to_version": c.to_version, "triggered_by": c.triggered_by} for c in recent_cl_result.scalars().all()]
-        if project:
-            briefing_text = briefing_service.render_briefing(
-                {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": project.updated_at.isoformat()},
-                new_state, new_version, cl_dicts,
-            )
-            project.compiled_briefing = briefing_text
-            await db.commit()
-
-        for doc, _, _, _ in parse_results:
-            await _log_pipeline(db, redis, channel, doc, step=10, total=10, label="briefing", status="done", detail="Projekt-Briefing aktualisiert")
-
-        # Mark all successful docs as done
-        for doc, _, _, _ in parse_results:
-            doc.processing_status = "done"
-            doc.pipeline_step = 10
-            doc.pipeline_step_label = "complete"
-            doc.pipeline_updated_at = datetime.now(timezone.utc)
-        await db.commit()
-
-        for doc, _, _, _ in parse_results:
-            await _publish(redis, channel, {
-                "event": "pipeline_complete",
-                "document_id": str(doc.id),
-                "state_version": new_version,
-                "step": 10, "total": 10, "label": "complete", "status": "done",
-                "timestamp": _timestamp(),
-            })
+            except Exception as exc:
+                # Translate the technical Qdrant dim-mismatch error into a
+                # user-actionable message so the UI banner reads correctly.
+                err_message = str(exc)
+                if isinstance(exc, qdrant_service.EmbeddingDimensionMismatch):
+                    err_message = (
+                        f"Embedding-Index inkompatibel: Collection wurde mit "
+                        f"Dimension {exc.expected} erstellt, der aktive Provider "
+                        f"liefert Dimension {exc.got}. Bitte den Embedding-Index "
+                        f"in den Projekt-Einstellungen neu aufbauen."
+                    )
+                elif "Vector dimension error" in err_message:
+                    err_message = (
+                        "Embedding-Dimension passt nicht zur bestehenden Collection. "
+                        "Embedding-Index neu aufbauen (Projekt → Embeddings)."
+                    )
+                log.error("batch_doc_failed", document_id=str(doc.id), error=err_message)
+                try:
+                    doc.processing_status = "failed"
+                    doc.processing_error = err_message
+                    logs = list(doc.pipeline_logs or [])
+                    logs.append({"timestamp": _timestamp(), "step": doc.pipeline_step, "total": 10, "label": doc.pipeline_step_label or "failed", "status": "failed", "detail": err_message, "meta": {}})
+                    doc.pipeline_logs = logs
+                    doc.pipeline_updated_at = datetime.now(timezone.utc)
+                    await db.commit()
+                except Exception:
+                    pass
+                await _publish(redis, channel, {"event": "pipeline_failed", "document_id": str(doc.id), "error": str(exc), "timestamp": _timestamp()})
 
 
 async def _process(db: AsyncSession, redis: Any, document_id: str) -> None:
@@ -474,11 +485,11 @@ async def _process(db: AsyncSession, redis: Any, document_id: str) -> None:
         await db.commit()
         await _log_pipeline(db, redis, channel, doc, step=9, total=10, label="git_commit", status="done", detail="Commit-Hash im Dokument gespeichert", meta={"commit_hash": commit_hash})
 
-        # Step 12: embed chunks (skipped when embeddings disabled in settings)
-        embeddings_flag = await redis.get(_KEY_EMBEDDINGS)
-        if chunks and embeddings_flag != "0":
+        # Step 12: embed chunks (skipped when no active embedding provider)
+        embeddings_enabled = await get_active_provider("embedding", db) is not None
+        if chunks and embeddings_enabled:
             await qdrant_service.upsert_chunks(str(doc.project_id), chunks, str(doc.id), doc.original_filename)
-        await _log_pipeline(db, redis, channel, doc, step=10, total=10, label="embeddings", status="done", detail="Embeddings verarbeitet", meta={"enabled": embeddings_flag != "0", "chunk_count": len(chunks)})
+        await _log_pipeline(db, redis, channel, doc, step=10, total=10, label="embeddings", status="done", detail="Embeddings verarbeitet", meta={"enabled": embeddings_enabled, "chunk_count": len(chunks)})
 
         # Step 13: render briefing
         proj_result = await db.execute(select(Project).where(Project.id == doc.project_id))

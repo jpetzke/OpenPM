@@ -7,20 +7,37 @@ from typing import Any
 import structlog
 from openai import AsyncOpenAI, RateLimitError
 
-from app.agent_config import AVAILABLE_MODELS
-from app.config import settings
+from app.schemas.provider_config import ModelRole
+from app.services.provider_resolver import (
+    build_llm_client,
+    candidate_models,
+    require_active_provider,
+)
 
 log = structlog.get_logger()
 
 
-def _client() -> AsyncOpenAI:
-    return AsyncOpenAI(base_url=settings.llm_base_url, api_key=settings.llm_api_key)
+_PURPOSE_TO_ROLE: dict[str, ModelRole] = {
+    "chat": "chat",
+    "extraction": "extraction",
+    "document_summary": "extraction",
+    "document_state_extraction": "extraction",
+    "agent_round": "chat",
+    "general": "chat",
+}
 
 
-def _model_candidates(model_override: str | None = None) -> list[str]:
-    if model_override:
-        return [model_override]
-    return AVAILABLE_MODELS
+def _role_for_purpose(purpose: str) -> ModelRole:
+    return _PURPOSE_TO_ROLE.get(purpose, "chat")
+
+
+async def _client_and_candidates(
+    purpose: str, model_override: str | None
+) -> tuple[AsyncOpenAI, list[str]]:
+    provider = await require_active_provider("llm")
+    client = build_llm_client(provider)
+    models = candidate_models(provider, _role_for_purpose(purpose), model_override)
+    return client, models
 
 
 async def complete(
@@ -29,8 +46,7 @@ async def complete(
     purpose: str = "general",
     model_override: str | None = None,
 ) -> Any:
-    client = _client()
-    candidates = _model_candidates(model_override)
+    client, candidates = await _client_and_candidates(purpose, model_override)
     last_exc: Exception | None = None
 
     for index, model in enumerate(candidates):
@@ -50,7 +66,13 @@ async def complete(
             response = await client.chat.completions.create(**kwargs)
         except RateLimitError as exc:
             last_exc = exc
-            log.warning("llm_complete_rate_limited", purpose=purpose, model=model, attempt=index + 1, error=str(exc))
+            log.warning(
+                "llm_complete_rate_limited",
+                purpose=purpose,
+                model=model,
+                attempt=index + 1,
+                error=str(exc),
+            )
             if index < len(candidates) - 1:
                 continue
             raise
@@ -77,8 +99,7 @@ async def stream(
     purpose: str = "general",
     model_override: str | None = None,
 ) -> AsyncGenerator[str, None]:
-    client = _client()
-    candidates = _model_candidates(model_override)
+    client, candidates = await _client_and_candidates(purpose, model_override)
     last_exc: Exception | None = None
 
     for index, model in enumerate(candidates):
@@ -89,10 +110,19 @@ async def stream(
         chunk_count = 0
         total_chars = 0
         yielded_any = False
-        log.info("llm_stream_started", purpose=purpose, model=model, message_count=len(messages), attempt=index + 1)
+        log.info(
+            "llm_stream_started",
+            purpose=purpose,
+            model=model,
+            message_count=len(messages),
+            attempt=index + 1,
+        )
         try:
             async with client.chat.completions.stream(**kwargs) as s:
-                async for chunk in s:
+                async for event in s:
+                    if event.type != "chunk":
+                        continue
+                    chunk = event.chunk
                     delta = chunk.choices[0].delta if chunk.choices else None
                     if delta and delta.content:
                         chunk_count += 1
@@ -110,7 +140,13 @@ async def stream(
             return
         except RateLimitError as exc:
             last_exc = exc
-            log.warning("llm_stream_rate_limited", purpose=purpose, model=model, attempt=index + 1, error=str(exc))
+            log.warning(
+                "llm_stream_rate_limited",
+                purpose=purpose,
+                model=model,
+                attempt=index + 1,
+                error=str(exc),
+            )
             if yielded_any or index == len(candidates) - 1:
                 raise
             continue
@@ -138,8 +174,7 @@ async def agent_round(
 
     Calls structure: [{"id": str, "name": str, "arguments": str}, ...]
     """
-    client = _client()
-    candidates = _model_candidates(model_override)
+    client, candidates = await _client_and_candidates(purpose, model_override)
     last_exc: Exception | None = None
 
     for index, model in enumerate(candidates):
@@ -157,7 +192,10 @@ async def agent_round(
 
         try:
             async with client.chat.completions.stream(**kwargs) as s:
-                async for chunk in s:
+                async for event in s:
+                    if event.type != "chunk":
+                        continue
+                    chunk = event.chunk
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta
@@ -197,7 +235,13 @@ async def agent_round(
 
         except RateLimitError as exc:
             last_exc = exc
-            log.warning("llm_agent_round_rate_limited", purpose=purpose, model=model, attempt=index + 1, error=str(exc))
+            log.warning(
+                "llm_agent_round_rate_limited",
+                purpose=purpose,
+                model=model,
+                attempt=index + 1,
+                error=str(exc),
+            )
             if yielded_any or model_override or index == len(candidates) - 1:
                 raise
             continue

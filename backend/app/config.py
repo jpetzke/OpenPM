@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -9,16 +11,8 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379"
     storage_path: str = "/storage"
 
-    llm_base_url: str = "https://openrouter.ai/api/v1"
-    llm_api_key: str = "changeme"
-
-    embedding_provider: str = "openai_compat"
-    embedding_base_url: str = "https://api.openai.com/v1"
-    embedding_api_key: str = "changeme"
-    embedding_model: str = "text-embedding-3-small"
-    embedding_dimension: int = 1536
-
     secret_key: str = "changeme-min-32-chars-placeholder-x"
+    openpm_encryption_key: str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     access_token_expire_days: int = 7
 
     frontend_url: str = "http://localhost:3000"
@@ -27,6 +21,8 @@ class Settings(BaseSettings):
 
     kreuzberg_force_ocr: bool = False
     kreuzberg_ocr_language: str = "deu+eng"
+
+    environment: Literal["dev", "staging", "production"] = "dev"
 
 
 settings = Settings()

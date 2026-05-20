@@ -1,8 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
 import structlog
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from sqlalchemy import select
 
 from app.auth import hash_password
@@ -10,6 +12,8 @@ from app.config import settings
 from app.database import async_session_factory
 from app.models.user import User
 from app.routers import app_settings, auth, chat, documents, events, projects, state
+from app.services.llm_crypto import validate_encryption_key
+from app.services.provider_resolver import NoActiveProviderError
 
 structlog.configure(
     processors=[
@@ -52,11 +56,25 @@ async def ensure_demo_user() -> None:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    validate_encryption_key()
     await ensure_demo_user()
     yield
 
 
-app = FastAPI(title="OpenPM API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="OpenPM API",
+    version="0.1.0",
+    lifespan=lifespan,
+    openapi_tags=[
+        {"name": "auth", "description": "User authentication and session management."},
+        {"name": "projects", "description": "Project lifecycle, membership, deletion."},
+        {"name": "documents", "description": "Upload and pipeline management."},
+        {"name": "state", "description": "Versioned project state (briefing, tasks, contacts)."},
+        {"name": "chat", "description": "LLM chat with agentic tool calls over project context."},
+        {"name": "events", "description": "Server-sent events for live pipeline + state updates."},
+        {"name": "app_settings", "description": "Provider configuration and global settings."},
+    ],
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -66,6 +84,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(NoActiveProviderError)
+async def _no_active_provider_handler(_: Request, exc: NoActiveProviderError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={"detail": f"no_active_{exc.purpose}_provider", "purpose": exc.purpose},
+    )
+
+
 app.include_router(app_settings.router)
 app.include_router(auth.router)
 app.include_router(projects.router)
@@ -73,6 +99,22 @@ app.include_router(documents.router)
 app.include_router(state.router)
 app.include_router(chat.router)
 app.include_router(events.router)
+
+
+# Legacy shim: re-mount auth endpoints under /auth/* for backward compatibility.
+# This is intentionally hidden from the OpenAPI schema and should be removed
+# once all clients have migrated to /api/auth/*.
+legacy_auth = APIRouter(prefix="/auth", include_in_schema=False)
+for _route in auth.router.routes:
+    if isinstance(_route, APIRoute):
+        _inner_path = _route.path.removeprefix("/api/auth") or "/"
+        legacy_auth.add_api_route(
+            _inner_path,
+            _route.endpoint,
+            methods=list(_route.methods),
+            include_in_schema=False,
+        )
+app.include_router(legacy_auth)
 
 
 @app.get("/health")
