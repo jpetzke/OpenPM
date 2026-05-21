@@ -30,3 +30,8 @@ class DocumentResponse(BaseModel):
 class TextDocumentCreate(BaseModel):
     content: str
     title: str
+
+
+class DocumentUploadResponse(BaseModel):
+    document: DocumentResponse
+    change_session_id: uuid.UUID | None = None

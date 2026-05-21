@@ -11,7 +11,7 @@ from app.auth import hash_password
 from app.config import settings
 from app.database import async_session_factory
 from app.models.user import User
-from app.routers import app_settings, auth, chat, documents, events, projects, state
+from app.routers import app_settings, auth, change_sessions, chat, documents, events, projects, state
 from app.services.llm_crypto import validate_encryption_key
 from app.services.provider_resolver import NoActiveProviderError
 
@@ -99,6 +99,7 @@ app.include_router(documents.router)
 app.include_router(state.router)
 app.include_router(chat.router)
 app.include_router(events.router)
+app.include_router(change_sessions.router)
 
 
 # Legacy shim: re-mount auth endpoints under /auth/* for backward compatibility.

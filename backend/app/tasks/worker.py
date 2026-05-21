@@ -1,11 +1,13 @@
 from arq.connections import RedisSettings
+from arq.cron import cron
 
 from app.config import settings
-from app.tasks.pipeline import process_document, process_project_batch
+from app.tasks.pipeline import close_idle_change_sessions, process_document
 
 
 class WorkerSettings:
-    functions = [process_document, process_project_batch]
+    functions = [process_document, close_idle_change_sessions]
+    cron_jobs = [cron(close_idle_change_sessions, second=0)]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = settings.arq_max_jobs
     job_timeout = 300

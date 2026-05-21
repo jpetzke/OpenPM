@@ -8,6 +8,26 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database import Base
 
 
+class ChangeSession(Base):
+    __tablename__ = "change_sessions"
+    __table_args__ = (
+        CheckConstraint(
+            "triggered_by IN ('auto_idle', 'manual_close', 'system')",
+            name="change_sessions_triggered_by_check",
+        ),
+        Index("change_sessions_project_idx", "project_id"),
+        Index("change_sessions_open_idx", "project_id", "closed_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    last_activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    summary: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    triggered_by: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
+
+
 class ProjectState(Base):
     __tablename__ = "project_state"
     __table_args__ = (
@@ -39,6 +59,12 @@ class StateChangelog(Base):
     delta: Mapped[dict] = mapped_column(JSONB, nullable=False)
     document_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True)
     triggered_by: Mapped[str] = mapped_column(String, nullable=False, default="pipeline")
+    change_session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("change_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     git_commit_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
