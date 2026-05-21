@@ -200,3 +200,35 @@ body::-webkit-scrollbar-thumb {
   border-color: var(--border-strong);
   box-shadow: var(--shadow-md);
 }
+
+@keyframes upload-fade-up {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.upload-fade-up {
+  animation: upload-fade-up 240ms var(--ease-out) both;
+}
+
+@keyframes upload-shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.upload-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent-subtle) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: upload-shimmer 1.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .upload-fade-up,
+  .upload-shimmer {
+    animation: none !important;
+  }
+}

@@ -1,11 +1,51 @@
 import { create } from "zustand";
 import type { DocumentStatus, PipelineLogEntry } from "@/types/document";
 
-export interface BatchStateEntry {
-  paused: boolean;
-  remaining: number;
-  windowS: number;
-  pendingCount: number;
+const ACTIVITY_LIMIT = 80;
+
+export type ConnectionState = "connecting" | "open" | "disconnected";
+
+export interface ExtractedSummary {
+  contacts_added: number;
+  tasks_added: number;
+  deadlines_added: number;
+  decisions_added: number;
+  blockers_added: number;
+  dynamic_items_added?: number;
+  sample?: {
+    first_task?: string | null;
+    first_deadline?: string | null;
+    first_contact?: string | null;
+  };
+}
+
+export interface ChangeSessionInfo {
+  id: string;
+  started_at: string;
+  last_activity_at: string;
+  closed_at: string | null;
+  summary: Record<string, unknown> | null;
+  triggered_by: string | null;
+}
+
+export interface ActivityEntry {
+  id: string;
+  ts: string;
+  documentId: string | null;
+  documentName?: string | null;
+  label: string;
+  detail: string | null;
+  status: PipelineLogEntry["status"] | "info";
+  kind: "document" | "session";
+  changeSessionId?: string | null;
+}
+
+export interface LastExtraction {
+  documentId: string;
+  filename?: string;
+  summary: ExtractedSummary;
+  stateVersion?: number;
+  at: string;
 }
 
 interface PipelineState {
@@ -22,10 +62,14 @@ interface PipelineState {
       logs: PipelineLogEntry[];
     }
   >;
-  // Mapping of documentId -> projectId, populated when SSE events come in.
   docProject: Record<string, string>;
-  // Per-project batch state (countdown of the 10s window before processing kicks in).
-  batchState: Record<string, BatchStateEntry>;
+  docNames: Record<string, string>;
+  perProjectActivity: Record<string, ActivityEntry[]>;
+  perProjectLastExtraction: Record<string, LastExtraction | null>;
+  perProjectActiveSession: Record<string, ChangeSessionInfo | null>;
+  perProjectLastClosed: Record<string, ChangeSessionInfo | null>;
+  connectionState: Record<string, ConnectionState>;
+
   setPipelineStatus: (documentId: string, status: DocumentStatus, projectId?: string) => void;
   pushPipelineEvent: (
     documentId: string,
@@ -38,18 +82,40 @@ interface PipelineState {
       timestamp?: string | null;
       meta?: Record<string, unknown>;
     },
-    projectId?: string
+    projectId?: string,
   ) => void;
+  pushActivity: (projectId: string, entry: ActivityEntry) => void;
   clearPipeline: (documentId: string) => void;
-  setBatchState: (projectId: string, next: BatchStateEntry) => void;
-  clearBatchState: (projectId: string) => void;
+  recordDocName: (documentId: string, name: string) => void;
+  recordExtraction: (projectId: string, payload: LastExtraction) => void;
+  setActiveSession: (projectId: string, session: ChangeSessionInfo | null) => void;
+  setSessionClosed: (projectId: string, session: ChangeSessionInfo) => void;
+  setConnectionState: (projectId: string, state: ConnectionState) => void;
+  hydrateProjectFromDocuments: (
+    projectId: string,
+    docs: Array<{
+      id: string;
+      original_filename: string;
+      processing_status: DocumentStatus;
+      pipeline_step: number | null;
+      pipeline_step_label: string | null;
+      pipeline_updated_at: string | null;
+      pipeline_logs: PipelineLogEntry[] | null;
+    }>,
+  ) => void;
 }
 
 export const usePipelineStore = create<PipelineState>()((set) => ({
   pipelines: {},
   details: {},
   docProject: {},
-  batchState: {},
+  docNames: {},
+  perProjectActivity: {},
+  perProjectLastExtraction: {},
+  perProjectActiveSession: {},
+  perProjectLastClosed: {},
+  connectionState: {},
+
   setPipelineStatus: (documentId, status, projectId) =>
     set((s) => ({
       pipelines: { ...s.pipelines, [documentId]: status },
@@ -57,6 +123,7 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
         ? { ...s.docProject, [documentId]: projectId }
         : s.docProject,
     })),
+
   pushPipelineEvent: (documentId, event, projectId) =>
     set((s) => {
       const current = s.details[documentId] ?? {
@@ -68,22 +135,21 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
         timestamp: null,
         logs: [],
       };
-      const nextLog =
-        event.label || event.detail
-          ? [
-              ...current.logs,
-              {
-                timestamp: event.timestamp ?? new Date().toISOString(),
-                step: event.step ?? null,
-                total: event.total ?? current.total ?? 0,
-                label: event.label ?? "update",
-                status: (event.status as PipelineLogEntry["status"]) ?? "info",
-                detail: event.detail ?? null,
-                meta: event.meta ?? {},
-              },
-            ]
-          : current.logs;
-
+      const wantsLog = event.label || event.detail;
+      const nextLogs = wantsLog
+        ? [
+            ...current.logs,
+            {
+              timestamp: event.timestamp ?? new Date().toISOString(),
+              step: event.step ?? null,
+              total: event.total ?? current.total ?? 0,
+              label: event.label ?? "update",
+              status: (event.status as PipelineLogEntry["status"]) ?? "info",
+              detail: event.detail ?? null,
+              meta: event.meta ?? {},
+            },
+          ]
+        : current.logs;
       return {
         details: {
           ...s.details,
@@ -94,7 +160,7 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
             status: event.status ?? current.status,
             detail: event.detail ?? current.detail,
             timestamp: event.timestamp ?? current.timestamp,
-            logs: nextLog,
+            logs: nextLogs,
           },
         },
         docProject: projectId
@@ -102,6 +168,14 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
           : s.docProject,
       };
     }),
+
+  pushActivity: (projectId, entry) =>
+    set((s) => {
+      const list = s.perProjectActivity[projectId] ?? [];
+      const next = [entry, ...list].slice(0, ACTIVITY_LIMIT);
+      return { perProjectActivity: { ...s.perProjectActivity, [projectId]: next } };
+    }),
+
   clearPipeline: (documentId) =>
     set((s) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -110,15 +184,63 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
       const { [documentId]: __, ...detailRest } = s.details;
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [documentId]: ___, ...projRest } = s.docProject;
-      return { pipelines: rest, details: detailRest, docProject: projRest };
-    }),
-  setBatchState: (projectId, next) =>
-    set((s) => ({ batchState: { ...s.batchState, [projectId]: next } })),
-  clearBatchState: (projectId) =>
-    set((s) => {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { [projectId]: _, ...rest } = s.batchState;
-      return { batchState: rest };
+      const { [documentId]: ____, ...nameRest } = s.docNames;
+      return {
+        pipelines: rest,
+        details: detailRest,
+        docProject: projRest,
+        docNames: nameRest,
+      };
+    }),
+
+  recordDocName: (documentId, name) =>
+    set((s) => ({ docNames: { ...s.docNames, [documentId]: name } })),
+
+  recordExtraction: (projectId, payload) =>
+    set((s) => ({
+      perProjectLastExtraction: { ...s.perProjectLastExtraction, [projectId]: payload },
+    })),
+
+  setActiveSession: (projectId, session) =>
+    set((s) => ({
+      perProjectActiveSession: { ...s.perProjectActiveSession, [projectId]: session },
+    })),
+
+  setSessionClosed: (projectId, session) =>
+    set((s) => ({
+      perProjectActiveSession: { ...s.perProjectActiveSession, [projectId]: null },
+      perProjectLastClosed: { ...s.perProjectLastClosed, [projectId]: session },
+    })),
+
+  setConnectionState: (projectId, state) =>
+    set((s) => ({ connectionState: { ...s.connectionState, [projectId]: state } })),
+
+  hydrateProjectFromDocuments: (projectId, docs) =>
+    set((s) => {
+      const pipelines = { ...s.pipelines };
+      const details = { ...s.details };
+      const docProject = { ...s.docProject };
+      const docNames = { ...s.docNames };
+      for (const d of docs) {
+        // Only fill gaps — never overwrite live SSE-driven state, otherwise a
+        // docs-query refetch immediately after a status-change event would
+        // clobber the new status with the previous DB row.
+        if (!(d.id in pipelines)) pipelines[d.id] = d.processing_status;
+        docProject[d.id] = projectId;
+        docNames[d.id] = d.original_filename;
+        if (details[d.id]) continue;
+        details[d.id] = {
+          step: d.pipeline_step,
+          total: d.pipeline_logs?.[d.pipeline_logs.length - 1]?.total ?? null,
+          label: d.pipeline_step_label,
+          status: d.processing_status,
+          detail: null,
+          timestamp: d.pipeline_updated_at,
+          logs: d.pipeline_logs ?? [],
+        };
+      }
+      return { pipelines, details, docProject, docNames };
     }),
 }));
 
@@ -133,22 +255,15 @@ export type ProjectPipelineSummary = {
   latestTimestamp: string | null;
 };
 
-/**
- * Combine `batchState[projectId]` and per-document pipeline data into a
- * single view-model that the GlobalStatusBar and sidebar use.
- */
 export function getProjectPipelineSummary(
   state: PipelineStore,
-  projectId: string
+  projectId: string,
 ): ProjectPipelineSummary {
-  const batch = state.batchState[projectId];
-  const pendingCount = batch?.pendingCount ?? 0;
-
-  // Collect document IDs known to belong to this project.
   const docIds = Object.entries(state.docProject)
     .filter(([, pid]) => pid === projectId)
     .map(([docId]) => docId);
 
+  let pendingCount = 0;
   let processingCount = 0;
   let latestLabel: string | null = null;
   let latestStatus: ProjectPipelineSummary["latestStatus"] = "idle";
@@ -158,7 +273,7 @@ export function getProjectPipelineSummary(
 
   for (const docId of docIds) {
     if (state.pipelines[docId] === "processing") processingCount += 1;
-
+    if (state.pipelines[docId] === "pending") pendingCount += 1;
     const detail = state.details[docId];
     if (!detail) continue;
     const ts = detail.timestamp ? Date.parse(detail.timestamp) : NaN;

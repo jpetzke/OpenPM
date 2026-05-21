@@ -28,7 +28,6 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
   // prevents the sidebar from re-rendering on every unrelated store update.
   const pipelineSlice = usePipelineStore(
     useShallow((s) => ({
-      batchState: s.batchState,
       pipelines: s.pipelines,
       details: s.details,
       docProject: s.docProject,

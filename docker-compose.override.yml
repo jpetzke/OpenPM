@@ -10,6 +10,10 @@ services:
       context: ./frontend
       args:
         NEXT_PUBLIC_API_URL: http://localhost:8000
+    environment:
+      # Runtime env so `next dev` exposes the backend URL to browser code —
+      # used to bypass the dev-server gzip layer on SSE responses.
+      NEXT_PUBLIC_API_URL: http://localhost:8000
     volumes:
       - ./frontend:/app:z
       - /app/node_modules

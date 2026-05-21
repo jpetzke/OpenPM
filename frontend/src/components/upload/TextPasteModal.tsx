@@ -21,7 +21,7 @@ export function TextPasteModal({ projectId, onClose }: TextPasteModalProps) {
     if (!title.trim() || !content.trim()) return;
     setLoading(true);
     try {
-      await api.post<Document>(`/api/projects/${projectId}/documents/text`, {
+      await api.post<{ document: Document; change_session_id: string | null }>(`/api/projects/${projectId}/documents/text`, {
         title: title.trim(),
         content: content.trim(),
       });
@@ -39,12 +39,10 @@ export function TextPasteModal({ projectId, onClose }: TextPasteModalProps) {
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
       style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
     >
       <div
         className="w-full max-w-lg rounded-xl border shadow-2xl overflow-hidden"
         style={{ background: "var(--bg-overlay)", borderColor: "var(--border-strong)" }}
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
           <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>Text einfügen</span>
