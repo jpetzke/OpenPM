@@ -226,9 +226,35 @@ body::-webkit-scrollbar-thumb {
   animation: upload-shimmer 1.8s linear infinite;
 }
 
+/* Indeterminate sliding progress bar (Material-style) — the inner ".progress"
+   is 30% wide and slides from off-screen-left to off-screen-right so it never
+   appears to "stop and reset halfway". Use translateX(-100%) → translateX(400%)
+   because 100% on a 30%-wide child only moves it 30% of the container. */
+.upload-bar {
+  position: relative;
+  height: 3px;
+  background: var(--bg-elevated);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.upload-bar .progress {
+  height: 100%;
+  width: 30%;
+  background: var(--accent);
+  border-radius: 2px;
+  animation: upload-slide 1.5s ease-in-out infinite;
+}
+
+@keyframes upload-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .upload-fade-up,
-  .upload-shimmer {
+  .upload-shimmer,
+  .upload-bar .progress {
     animation: none !important;
   }
 }

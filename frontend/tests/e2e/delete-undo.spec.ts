@@ -1,33 +1,41 @@
 import { expect, test } from "@playwright/test";
 import { getOrCreateProjectId } from "./fixtures";
 
-test("delete-with-undo: card disappears, undo restores it", async ({ page }) => {
+test("delete-with-undo: row disappears, undo restores it", async ({ page }) => {
   const projectId = await getOrCreateProjectId();
   const stamp = Date.now();
   const filename = `e2e_delete_${stamp}.txt`;
 
+  // /upload redirects into cockpit with the upload zone open.
   await page.goto(`/projects/${projectId}/upload`);
+  await expect(
+    page.getByRole("button", { name: "Dokumente hochladen" }),
+  ).toBeVisible({ timeout: 8_000 });
+
   await page.locator('input[type=file]').first().setInputFiles({
     name: filename,
     mimeType: "text/plain",
     buffer: Buffer.from(`Delete e2e ${stamp}. Task: t. Deadline: 2026-12-31.`),
   });
 
-  const card = page.locator("article", { hasText: filename }).first();
-  await expect(card).toBeVisible({ timeout: 10_000 });
-  // Wait for processing to settle so reprocess buttons exist.
-  await expect(card).toContainText("fertig", { timeout: 30_000 });
+  const row = page
+    .getByTestId("documents-list")
+    .locator("li", { hasText: filename })
+    .first();
+  await expect(row).toBeVisible({ timeout: 15_000 });
 
-  await card.getByRole("button", { name: "Dokument löschen" }).click();
+  // Hover to reveal the delete button, then click it.
+  await row.hover();
+  await row.getByRole("button", { name: "Dokument löschen" }).click();
 
-  // Card vanishes from DOM.
+  // Row vanishes from the panel.
   await expect(
-    page.locator("article", { hasText: filename }),
-  ).toHaveCount(0, { timeout: 2_000 });
+    page.getByTestId("documents-list").locator("li", { hasText: filename }),
+  ).toHaveCount(0, { timeout: 5_000 });
 
-  // Undo toast restores the card.
+  // Undo via toast brings it back.
   await page.getByRole("button", { name: "Rückgängig" }).click();
   await expect(
-    page.locator("article", { hasText: filename }),
+    page.getByTestId("documents-list").locator("li", { hasText: filename }),
   ).toHaveCount(1, { timeout: 5_000 });
 });

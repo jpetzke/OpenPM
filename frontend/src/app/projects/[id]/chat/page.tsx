@@ -1,8 +1,9 @@
 "use client";
-import { use } from "react";
-import { ChatInterface } from "@/components/chat/ChatInterface";
 
-export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
+import { use } from "react";
+import { redirect } from "next/navigation";
+
+export default function ChatRedirect({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  return <ChatInterface projectId={id} />;
+  redirect(`/projects/${id}#archive`);
 }

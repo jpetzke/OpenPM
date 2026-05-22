@@ -1,9 +1,10 @@
 "use client";
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useState, useEffect } from "react";
 import { Loader2, Send, Square } from "lucide-react";
 import type { ModelInfo } from "@/types/chat";
 
 interface ChatInputProps {
+  onFocus?: () => void;
   onSend: (message: string) => void;
   onAbort?: () => void;
   disabled: boolean;
@@ -21,8 +22,14 @@ export function ChatInput({
   models = [],
   selectedModel,
   onModelChange,
+  onFocus,
 }: ChatInputProps) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    setIsMobile("ontouchstart" in window);
+  }, []);
 
   const submit = useCallback(() => {
     const val = ref.current?.value.trim();
@@ -35,6 +42,15 @@ export function ChatInput({
   }, [onSend, disabled]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (isMobile) {
+      // On mobile: Enter inserts newline. Cmd/Ctrl+Enter still submits.
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        submit();
+      }
+      return;
+    }
+    // Desktop: Enter submits, Shift+Enter inserts newline.
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       submit();
@@ -91,6 +107,7 @@ export function ChatInput({
           rows={1}
           onKeyDown={onKeyDown}
           onChange={onInput}
+          onFocus={onFocus}
           disabled={false}
           placeholder="Frage stellen..."
           className="flex-1 resize-none outline-none text-sm py-2 px-3 rounded-md"
@@ -118,7 +135,7 @@ export function ChatInput({
             disabled={disabled}
             className="p-2 rounded-md transition-default disabled:opacity-40 shrink-0"
             style={{ background: "var(--accent)", color: "var(--primary-foreground)" }}
-            title="Senden (⌘↵)"
+            title={isMobile ? "Senden" : "Senden (⌘↵)"}
             aria-label="Senden"
           >
             {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}

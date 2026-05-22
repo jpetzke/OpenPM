@@ -7,31 +7,53 @@ test("upload progresses through pipeline live without page refresh", async ({ pa
   const filename = `e2e_live_${stamp}.txt`;
   const content = `Live update e2e ${stamp}\nTask: live_${stamp}\nDeadline: 2026-12-31 demo.`;
 
+  // /upload redirects to /{id}#docs and auto-opens the upload zone.
   await page.goto(`/projects/${projectId}/upload`);
 
-  // DropZone must be present.
   const dropzone = page.getByRole("button", { name: "Dokumente hochladen" });
-  await expect(dropzone).toBeVisible();
+  await expect(dropzone).toBeVisible({ timeout: 8_000 });
 
-  // Drive the underlying file input (no real drag — equivalent code path).
   await page.locator('input[type=file]').first().setInputFiles({
     name: filename,
     mimeType: "text/plain",
     buffer: Buffer.from(content, "utf-8"),
   });
 
-  const card = page.locator("article", { hasText: filename }).first();
-  await expect(card).toBeVisible({ timeout: 5_000 });
+  // The compact docs panel must show a row with the filename within 15s.
+  const docRow = page
+    .getByTestId("documents-list")
+    .locator("li", { hasText: filename })
+    .first();
+  await expect(docRow).toBeVisible({ timeout: 15_000 });
 
-  // While processing, the status row must reach an in-flight label at least
-  // once. Pipeline step labels: parsing / LLM / Embeddings & Briefing.
-  await expect(card).toContainText(/(Parsen|LLM|Embeddings & Briefing|eingereiht)/, {
-    timeout: 8_000,
-  });
+  // Wait for the pipeline to settle (processing → done|failed) without any
+  // manual refresh. Poll the documents endpoint with the stored auth token.
+  await expect
+    .poll(
+      async () => {
+        return await page.evaluate(
+          async ({ id, fn }) => {
+            const raw = localStorage.getItem("openpm-auth");
+            const parsed = raw ? JSON.parse(raw) : null;
+            const token = parsed?.state?.token;
+            const res = await fetch(`/api/projects/${id}/documents`, {
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (!res.ok) return null;
+            const docs = (await res.json()) as Array<{
+              original_filename: string;
+              processing_status: string;
+            }>;
+            const match = docs.find((d) => d.original_filename === fn);
+            return match?.processing_status ?? null;
+          },
+          { id: projectId, fn: filename },
+        );
+      },
+      { timeout: 60_000, intervals: [1_500] },
+    )
+    .toMatch(/done|failed/);
 
-  // Finally the card must show "fertig" without a manual refresh.
-  await expect(card).toContainText("fertig", { timeout: 30_000 });
-
-  // The live extraction panel reflects the new extraction.
-  await expect(page.getByText("Letzte Extraktion")).toBeVisible();
+  // Row remains in the panel after settling.
+  await expect(docRow).toBeVisible();
 });

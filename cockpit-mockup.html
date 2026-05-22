@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>OpenPM — Cockpit Mockup</title>
+<style>
+  :root {
+    --bg-base: #0a0a0f;
+    --bg-surface: #14141c;
+    --bg-elevated: #1f1f2c;
+    --bg-input: #1a1a25;
+    --accent: #818cf8;
+    --accent-subtle: rgba(129, 140, 248, 0.12);
+    --danger: #f87171;
+    --warning: #fbbf24;
+    --text-primary: #e5e7eb;
+    --text-secondary: #9ca3af;
+    --text-muted: #6b7280;
+    --border: #2a2a35;
+    --border-strong: #3a3a4a;
+    --radius: 12px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; font-family: -apple-system, "Segoe UI", Inter, sans-serif; font-size: 14px; }
+  body { background: var(--bg-base); color: var(--text-primary); overflow: hidden; }
+
+  .toolbar { position: fixed; top: 12px; right: 12px; z-index: 100; display: flex; gap: 8px; background: var(--bg-surface); padding: 6px; border-radius: 8px; border: 1px solid var(--border); }
+  .toolbar button { background: transparent; color: var(--text-secondary); border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .toolbar button.active { background: var(--accent-subtle); color: var(--accent); }
+
+  .app { display: grid; grid-template-columns: 240px 1fr 340px; height: 100vh; }
+
+  /* LEFT SIDEBAR */
+  .sidebar { background: var(--bg-surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 16px 12px; gap: 4px; }
+  .sidebar .brand { font-size: 18px; font-weight: 600; padding: 8px 12px 16px; }
+  .sidebar .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 8px; cursor: pointer; color: var(--text-secondary); font-size: 13px; }
+  .sidebar .nav-item:hover { background: var(--bg-elevated); color: var(--text-primary); }
+  .sidebar .nav-item.active { background: var(--accent-subtle); color: var(--accent); }
+  .sidebar .nav-item .icon { width: 16px; height: 16px; opacity: 0.7; }
+  .sidebar .label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); padding: 16px 12px 4px; letter-spacing: 0.5px; }
+  .sidebar .spacer { flex: 1; }
+  .sidebar .user { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--border); margin-top: 8px; }
+  .sidebar .avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: white; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 12px; }
+  .sidebar .user-info { flex: 1; }
+  .sidebar .user-info .name { font-size: 13px; }
+  .sidebar .user-info .sub { font-size: 11px; color: var(--text-muted); }
+
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+
+  /* CENTER */
+  .center { overflow-y: auto; padding: 32px 48px; }
+  .crumb { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; cursor: pointer; }
+  .crumb:hover { color: var(--text-secondary); }
+  .proj-title { font-size: 28px; font-weight: 600; margin-bottom: 4px; display: flex; align-items: center; gap: 12px; }
+  .proj-status-pill { font-size: 11px; padding: 3px 10px; background: var(--accent-subtle); color: var(--accent); border-radius: 999px; }
+  .proj-meta { color: var(--text-muted); font-size: 13px; margin-bottom: 32px; }
+
+  /* CHAT INPUT (landing) */
+  .chat-input-wrap { background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 32px; transition: border-color 0.2s; }
+  .chat-input-wrap:focus-within { border-color: var(--accent); }
+  .chat-input { width: 100%; background: transparent; border: none; color: var(--text-primary); font-size: 15px; min-height: 60px; resize: none; outline: none; font-family: inherit; }
+  .chat-input::placeholder { color: var(--text-muted); }
+  .input-footer { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .input-footer .left { display: flex; align-items: center; gap: 12px; }
+  .input-footer .right { display: flex; align-items: center; gap: 8px; }
+  .icon-btn { width: 30px; height: 30px; border-radius: 8px; border: none; background: transparent; color: var(--text-muted); cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .icon-btn:hover { background: var(--bg-elevated); color: var(--text-secondary); }
+  .send-btn { background: var(--accent); color: white; }
+  .send-btn:hover { background: var(--accent); opacity: 0.9; }
+  .model-select { background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border); padding: 5px 10px; border-radius: 6px; font-size: 12px; cursor: pointer; }
+
+  /* PROMPT SUGGESTIONS (landing empty) */
+  .prompts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 32px; }
+  .prompts h4 { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .prompt-card { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; color: var(--text-secondary); font-size: 13px; display: flex; align-items: center; gap: 10px; }
+  .prompt-card:hover { border-color: var(--border-strong); color: var(--text-primary); }
+
+  /* SESSION LIST */
+  .sessions h3 { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; font-weight: 500; }
+  .session-item { display: flex; justify-content: space-between; align-items: flex-start; padding: 14px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .session-item:hover { padding-left: 8px; padding-right: 8px; background: var(--bg-surface); margin: 0 -8px; border-radius: 8px; border-bottom-color: transparent; }
+  .session-title { font-size: 14px; color: var(--text-primary); margin-bottom: 2px; }
+  .session-sub { font-size: 12px; color: var(--text-muted); }
+  .session-arrow { color: var(--text-muted); font-size: 16px; }
+
+  /* CONVERSATION VIEW */
+  .conv-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .conv-back { background: transparent; border: 1px solid var(--border); color: var(--text-secondary); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+  .conv-back:hover { background: var(--bg-surface); }
+  .conv-title { font-size: 16px; color: var(--text-primary); }
+  .messages { display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px; }
+  .msg { max-width: 80%; padding: 12px 16px; border-radius: 12px; line-height: 1.5; font-size: 14px; }
+  .msg.user { align-self: flex-end; background: var(--accent-subtle); color: var(--text-primary); }
+  .msg.assistant { align-self: flex-start; background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-primary); }
+  .tool-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: 11px; color: var(--accent); margin-bottom: 6px; }
+  .pulse-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .mutation-card { display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 12px; margin-bottom: 8px; }
+  .mutation-card .undo-btn { margin-left: auto; background: var(--bg-elevated); color: var(--accent); border: 1px solid var(--border-strong); padding: 3px 8px; border-radius: 5px; font-size: 11px; cursor: pointer; }
+
+  /* RIGHT SIDEBAR */
+  .right { background: var(--bg-surface); border-left: 1px solid var(--border); overflow-y: auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 16px; }
+  .panel { background: var(--bg-base); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+  .panel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .panel-title { font-size: 12px; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.5px; font-weight: 500; }
+  .panel-action { background: transparent; border: 1px solid var(--border); color: var(--text-muted); width: 22px; height: 22px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+  .panel-action:hover { color: var(--text-primary); border-color: var(--border-strong); }
+
+  /* status panel */
+  .status-row { display: flex; flex-direction: column; gap: 8px; }
+  .status-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; font-size: 13px; }
+  .status-item .k { color: var(--text-muted); }
+  .status-item .v { color: var(--text-primary); font-weight: 500; }
+  .status-item .v.warn { color: var(--warning); }
+  .status-item .v.danger { color: var(--danger); }
+
+  /* docs panel */
+  .doc-list { display: flex; flex-direction: column; gap: 4px; }
+  .doc-item { display: flex; align-items: center; gap: 8px; padding: 8px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .doc-item:hover { background: var(--bg-elevated); }
+  .doc-name { flex: 1; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .doc-meta { font-size: 11px; color: var(--text-muted); }
+  .doc-icon { color: var(--text-muted); font-size: 14px; }
+  .docs-empty { color: var(--text-muted); text-align: center; padding: 16px; font-size: 12px; font-style: italic; }
+
+  /* upload progress (the bug-fixed version) */
+  .upload-bar { height: 3px; background: var(--bg-elevated); border-radius: 2px; overflow: hidden; margin-top: 8px; position: relative; }
+  .upload-bar .progress { height: 100%; background: var(--accent); width: 60%; transition: width 0.3s ease-out; }
+  .upload-bar.indeterminate .progress { width: 30%; animation: slide 1.5s ease-in-out infinite; }
+  @keyframes slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(400%); } }
+
+  /* briefing panel */
+  .briefing-preview { font-size: 12px; color: var(--text-secondary); line-height: 1.6; max-height: 120px; overflow: hidden; position: relative; }
+  .briefing-preview::after { content: ""; position: absolute; bottom: 0; left: 0; right: 0; height: 30px; background: linear-gradient(transparent, var(--bg-base)); }
+  .briefing-link { color: var(--accent); font-size: 12px; margin-top: 8px; cursor: pointer; display: inline-block; }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button id="btn-landing" class="active" onclick="show('landing')">Landing</button>
+  <button id="btn-conv" onclick="show('conversation')">Conversation</button>
+</div>
+
+<div class="app">
+
+  <!-- LEFT SIDEBAR -->
+  <aside class="sidebar">
+    <div class="brand">OpenPM</div>
+    <div class="nav-item">
+      <span class="icon">＋</span> Neues Projekt
+    </div>
+    <div class="nav-item">
+      <span class="icon">🔍</span> Suchen
+    </div>
+
+    <div class="label">Projekte</div>
+    <div class="nav-item active">
+      <span class="dot"></span> Erasmus
+    </div>
+    <div class="nav-item">
+      <span class="icon">○</span> Kunde Acme
+    </div>
+    <div class="nav-item">
+      <span class="icon">○</span> Internal Tools
+    </div>
+    <div class="nav-item">
+      <span class="icon">○</span> Onboarding 2026
+    </div>
+
+    <div class="spacer"></div>
+    <div class="user">
+      <div class="avatar">J</div>
+      <div class="user-info">
+        <div class="name">Jonas</div>
+        <div class="sub">Demo · Pro</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CENTER: LANDING -->
+  <main id="view-landing" class="center">
+    <div class="crumb">← Alle Projekte</div>
+    <div class="proj-title">
+      Erasmus
+      <span class="proj-status-pill">● aktiv</span>
+    </div>
+    <div class="proj-meta">Privat · Letzte Aktivität vor 9 Stunden · 12 offene Tasks</div>
+
+    <div class="chat-input-wrap">
+      <textarea class="chat-input" placeholder="Frage stellen... oder / für Slash-Commands"></textarea>
+      <div class="input-footer">
+        <div class="left">
+          <button class="icon-btn" title="Anhang">📎</button>
+          <select class="model-select">
+            <option>gpt-4.1 — chat</option>
+            <option>claude-haiku — fast</option>
+          </select>
+        </div>
+        <div class="right">
+          <button class="icon-btn send-btn" title="Senden">➤</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="prompts">
+      <h4>Vorschläge</h4>
+      <div class="prompt-card">💼 Was sind die offenen Tasks?</div>
+      <div class="prompt-card">📅 Welche Deadlines stehen an?</div>
+      <div class="prompt-card">📊 Fasse den aktuellen Status zusammen</div>
+    </div>
+
+    <div class="sessions">
+      <h3>Letzte Chats</h3>
+
+      <div class="session-item">
+        <div>
+          <div class="session-title">Wann ist die nächste Deadline?</div>
+          <div class="session-sub">vor 9 Stunden · 2 Nachrichten</div>
+        </div>
+        <div class="session-arrow">›</div>
+      </div>
+
+      <div class="session-item">
+        <div>
+          <div class="session-title">Kontakt-Liste für Erasmus-Studierende erstellen</div>
+          <div class="session-sub">vor 2 Tagen · 8 Nachrichten</div>
+        </div>
+        <div class="session-arrow">›</div>
+      </div>
+
+      <div class="session-item">
+        <div>
+          <div class="session-title">Sonderförderungen prüfen — Grünes Reisen</div>
+          <div class="session-sub">vor 4 Tagen · 5 Nachrichten</div>
+        </div>
+        <div class="session-arrow">›</div>
+      </div>
+
+      <div class="session-item">
+        <div>
+          <div class="session-title">Importierter Verlauf</div>
+          <div class="session-sub">vor 1 Woche · 12 Nachrichten</div>
+        </div>
+        <div class="session-arrow">›</div>
+      </div>
+    </div>
+  </main>
+
+  <!-- CENTER: CONVERSATION -->
+  <main id="view-conversation" class="center hidden">
+    <div class="conv-header">
+      <button class="conv-back" onclick="show('landing')">← Zurück</button>
+      <div class="conv-title">Wann ist die nächste Deadline?</div>
+    </div>
+
+    <div class="messages">
+      <div class="msg user">wann ist die nächste deadline??</div>
+
+      <div class="msg assistant">
+        <span class="tool-pill">
+          <span class="pulse-dot"></span>
+          🔍 Durchsuche Dokumente…
+        </span>
+        <br>
+        Die nächste relevante Deadline im Projekt ist der <strong>Registrierungszeitraum Erasmus+ 2026/27 (Hauptfenster)</strong>: Beginn 15.03.2026 — Ende 15.06.2026.
+        <br><br>
+        Das ist das Hauptfenster für die Online-Registrierung und Beantragung von Sonderförderungen.
+      </div>
+
+      <div class="mutation-card">
+        ✓ Task "Registrierung vorbereiten" → erledigt
+        <button class="undo-btn">↺ Rückgängig 28s</button>
+      </div>
+
+      <div class="msg user">Welche Sonderförderungen sind möglich?</div>
+    </div>
+
+    <div class="chat-input-wrap">
+      <textarea class="chat-input" placeholder="Frage stellen..."></textarea>
+      <div class="input-footer">
+        <div class="left">
+          <button class="icon-btn" title="Anhang">📎</button>
+          <select class="model-select">
+            <option>gpt-4.1 — chat</option>
+          </select>
+        </div>
+        <div class="right">
+          <button class="icon-btn send-btn" title="Senden">➤</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- RIGHT SIDEBAR -->
+  <aside class="right">
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Status</div>
+        <button class="panel-action">⤢</button>
+      </div>
+      <div class="status-row">
+        <div class="status-item"><span class="k">Offene Tasks</span><span class="v">12</span></div>
+        <div class="status-item"><span class="k">Nächste Deadline</span><span class="v">01.06.2026</span></div>
+        <div class="status-item"><span class="k">Blocker</span><span class="v warn">1</span></div>
+        <div class="status-item"><span class="k">Letztes Update</span><span class="v">vor 9h</span></div>
+        <div class="status-item"><span class="k">State-Version</span><span class="v">v19</span></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Dokumente · 4</div>
+        <button class="panel-action">＋</button>
+      </div>
+      <div class="doc-list">
+        <div class="doc-item">
+          <span class="doc-icon">📄</span>
+          <span class="doc-name">erasmus-richtlinien.pdf</span>
+          <span class="doc-meta">2h</span>
+        </div>
+        <div class="doc-item">
+          <span class="doc-icon">📄</span>
+          <span class="doc-name">kontaktliste-2026.xlsx</span>
+          <span class="doc-meta">5h</span>
+        </div>
+        <div class="doc-item">
+          <span class="doc-icon">⏳</span>
+          <span class="doc-name">protokoll-mai.docx</span>
+          <span class="doc-meta">jetzt</span>
+        </div>
+      </div>
+      <div class="upload-bar indeterminate"><div class="progress"></div></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Briefing</div>
+        <button class="panel-action">✎</button>
+      </div>
+      <div class="briefing-preview">
+        Erasmus+ Mobilitätsprojekt 2026/27. Stand v19. Aktuelle Phase: Registrierungsvorbereitung. Hauptdeadline 15.06.2026 (Antragsfenster). 12 offene Tasks — Schwerpunkt Sonderförderungen für Grünes Reisen und Chancengerechtigkeit. Blocker: Kontaktdaten Auslandsamt fehlen noch.
+      </div>
+      <div class="briefing-link">Vollständiges Briefing anzeigen →</div>
+    </div>
+
+  </aside>
+
+</div>
+
+<script>
+function show(view) {
+  document.getElementById('view-landing').classList.toggle('hidden', view !== 'landing');
+  document.getElementById('view-conversation').classList.toggle('hidden', view !== 'conversation');
+  document.getElementById('btn-landing').classList.toggle('active', view === 'landing');
+  document.getElementById('btn-conv').classList.toggle('active', view === 'conversation');
+}
+</script>
+
+</body>
+</html>

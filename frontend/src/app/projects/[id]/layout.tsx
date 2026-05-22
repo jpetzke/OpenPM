@@ -6,7 +6,6 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { useProjectSSE } from "@/hooks/useProjectSSE";
 import { AppSidebar } from "@/components/layout/AppSidebar";
-import { ProjectHeader } from "@/components/layout/ProjectHeader";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { GlobalStatusBar } from "@/components/layout/GlobalStatusBar";
 import type { Project } from "@/types/project";
@@ -29,27 +28,9 @@ export default function ProjectLayout({
     if (hasHydrated && !token) router.push("/login");
   }, [token, hasHydrated, router]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey)) return;
-      if (e.key === "1") {
-        e.preventDefault();
-        router.push(`/projects/${id}/upload`);
-      }
-      if (e.key === "2") {
-        e.preventDefault();
-        router.push(`/projects/${id}/state`);
-      }
-      if (e.key === "3") {
-        e.preventDefault();
-        router.push(`/projects/${id}/chat`);
-      }
-    };
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, [id, router]);
-
-  const { data: project, isLoading } = useQuery<Project>({
+  // Prefetch project so the cockpit's LandingView and BriefingPanel are
+  // populated before they mount their own queries.
+  useQuery<Project>({
     queryKey: ["projects", id],
     queryFn: () => api.get<Project>(`/api/projects/${id}`),
     enabled: !!token,
@@ -61,15 +42,8 @@ export default function ProjectLayout({
     <div className="flex h-screen overflow-hidden" style={{ background: "var(--bg-base)" }}>
       <AppSidebar currentProjectId={id} />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {project && <ProjectHeader project={project} />}
-        {isLoading && !project && (
-          <div
-            className="h-20 border-b animate-pulse shrink-0"
-            style={{ background: "var(--bg-surface)", borderColor: "var(--border)" }}
-          />
-        )}
         <GlobalStatusBar projectId={id} />
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 min-h-0 overflow-hidden">
           {children}
         </main>
       </div>

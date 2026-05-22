@@ -14,23 +14,12 @@ import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { usePipelineStore } from "@/store/pipelineStore";
 import { formatBytes, formatRelativeTime } from "@/lib/utils";
+import { labelForPipelineStep } from "@/lib/pipeline-phases";
 import type { Document, DocumentStatus, PipelineLogEntry } from "@/types/document";
-
-const PIPELINE_LABELS: Record<string, string> = {
-  queued: "Eingereiht",
-  parsing: "Parsen",
-  summarize_extract: "LLM",
-  state_merge: "State zusammenführen",
-  state_persist: "State speichern",
-  changelog: "Changelog",
-  git_commit: "Git",
-  enrich: "Embeddings & Briefing",
-  complete: "Abgeschlossen",
-};
 
 function labelFor(raw: string | null | undefined): string {
   if (!raw) return "Bereit";
-  return PIPELINE_LABELS[raw] ?? raw.replaceAll("_", " ");
+  return labelForPipelineStep(raw);
 }
 
 function StatusGlyph({ status }: { status: DocumentStatus }) {

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuthStore } from "@/store/authStore";
 import { toast } from "sonner";
-import type { ChatStreamState } from "@/types/chat";
+import type { ChatStreamState, ActiveToolCall, MutationCardData } from "@/types/chat";
 
 export function useChatStream(projectId: string) {
   const token = useAuthStore((s) => s.token);
@@ -14,8 +14,25 @@ export function useChatStream(projectId: string) {
     lastError: null,
   });
 
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [activeToolCalls, setActiveToolCalls] = useState<ActiveToolCall[]>([]);
+  const [mutationCards, setMutationCards] = useState<MutationCardData[]>([]);
+
   const clearError = useCallback(() => {
     setState((prev) => (prev.lastError ? { ...prev, lastError: null } : prev));
+  }, []);
+
+  const startNewSession = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    queuedText.current = "";
+    streamClosedRef.current = false;
+    fullTextRef.current = "";
+    completionRef.current = null;
+    setCurrentSessionId(null);
+    setActiveToolCalls([]);
+    setMutationCards([]);
+    setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
   }, []);
 
   const queuedText = useRef("");
@@ -74,6 +91,8 @@ export function useChatStream(projectId: string) {
     streamClosedRef.current = false;
     const completion = completionRef.current;
     completionRef.current = null;
+    setActiveToolCalls([]);
+    setMutationCards([]);
     setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
     // Return whatever was streamed so far so the caller can still show it.
     completion?.(fullTextRef.current, fullTextRef.current.length > 0);
@@ -99,6 +118,7 @@ export function useChatStream(projectId: string) {
       try {
         const body: Record<string, unknown> = { content };
         if (selectedModel) body.model = selectedModel;
+        if (currentSessionId) body.session_id = currentSessionId;
 
         const res = await fetch(`/api/projects/${projectId}/chat`, {
           method: "POST",
@@ -140,9 +160,33 @@ export function useChatStream(projectId: string) {
               const data = JSON.parse(raw);
               if (data.type === "message_start") {
                 setState((prev) => ({ ...prev, streaming: true, sending: false }));
+                if (data.session_id) setCurrentSessionId(data.session_id as string);
               }
               if (data.type === "tool_call") {
                 setState((prev) => ({ ...prev, activeTools: data.tools ?? [] }));
+              }
+              if (data.type === "tool_call_start") {
+                setActiveToolCalls(prev => [...prev, {
+                  call_id: data.call_id as string,
+                  tool_name: data.tool_name as string,
+                  args: (data.args as Record<string, unknown>) ?? {},
+                  status: "running",
+                }]);
+              }
+              if (data.type === "tool_call_end") {
+                setActiveToolCalls(prev => prev.map(tc =>
+                  tc.call_id === data.call_id
+                    ? { ...tc, result_summary: data.result_summary as string | undefined, status: "done" }
+                    : tc
+                ));
+              }
+              if (data.type === "mutation_card") {
+                setMutationCards(prev => [...prev, {
+                  undo_token: data.undo_token as string,
+                  description: data.description as string,
+                  expires_in: (data.expires_in as number) ?? 30,
+                  created_at: Date.now(),
+                }]);
               }
               if (data.type === "content_delta") {
                 const delta = data.delta ?? "";
@@ -153,6 +197,7 @@ export function useChatStream(projectId: string) {
               if (data.type === "message_end") {
                 streamClosedRef.current = true;
                 setState((prev) => ({ ...prev, sending: false, activeTools: [] }));
+                setActiveToolCalls([]);
                 flushCompletionIfReady();
               }
               if (data.type === "error") {
@@ -198,8 +243,25 @@ export function useChatStream(projectId: string) {
         queueMicrotask(() => completion(fullTextRef.current, fullTextRef.current.length > 0));
       }
     },
-    [flushCompletionIfReady, projectId, token],
+    [flushCompletionIfReady, projectId, token, currentSessionId],
   );
 
-  return { ...state, sendMessage, abort, clearError };
+  const setSessionId = useCallback((id: string | null) => {
+    setCurrentSessionId(id);
+    setActiveToolCalls([]);
+    setMutationCards([]);
+    setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
+  }, []);
+
+  return {
+    ...state,
+    currentSessionId,
+    activeToolCalls,
+    mutationCards,
+    sendMessage,
+    abort,
+    clearError,
+    startNewSession,
+    setSessionId,
+  };
 }

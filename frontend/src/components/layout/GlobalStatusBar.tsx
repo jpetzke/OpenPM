@@ -7,26 +7,12 @@ import {
   usePipelineStore,
   getProjectPipelineSummary,
 } from "@/store/pipelineStore";
+import { labelForPipelineStep } from "@/lib/pipeline-phases";
 
 const BAR_HEIGHT = 44;
 const FAILURE_VISIBILITY_MS = 5 * 60 * 1000;
 
-const PIPELINE_LABELS: Record<string, string> = {
-  queued: "Eingereiht",
-  parsing: "Parsen",
-  summarize_extract: "LLM",
-  state_merge: "State zusammenführen",
-  state_persist: "State speichern",
-  changelog: "Changelog",
-  git_commit: "Git",
-  enrich: "Embeddings & Briefing",
-  complete: "Abgeschlossen",
-};
-
-function formatLabel(label: string | null | undefined): string {
-  if (!label) return "Aktivität";
-  return PIPELINE_LABELS[label] ?? label.replaceAll("_", " ");
-}
+const formatLabel = labelForPipelineStep;
 
 interface GlobalStatusBarProps {
   projectId: string;
@@ -99,8 +85,8 @@ function ProcessingRow({
           background:
             "linear-gradient(90deg, transparent 0%, color-mix(in srgb, var(--accent) 22%, transparent) 50%, transparent 100%)",
         }}
-        animate={{ x: ["-30%", "130%"] }}
-        transition={{ duration: 1.6, ease: "linear", repeat: Infinity }}
+        animate={{ x: ["-100%", "400%"] }}
+        transition={{ duration: 1.6, ease: "easeInOut", repeat: Infinity }}
       />
       <div className="relative flex h-full items-center gap-3 px-4">
         <span

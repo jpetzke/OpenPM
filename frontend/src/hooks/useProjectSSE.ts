@@ -8,28 +8,14 @@ import {
   type ExtractedSummary,
   usePipelineStore,
 } from "@/store/pipelineStore";
+import { labelForPipelineStep } from "@/lib/pipeline-phases";
 
 const MAX_RETRIES = 6;
 const BASE_DELAY_MS = 1000;
 const MAX_DELAY_MS = 30000;
 const STALL_AFTER_MS = 40000;
 
-const PIPELINE_LABELS: Record<string, string> = {
-  queued: "Eingereiht",
-  parsing: "Parsen",
-  summarize_extract: "Zusammenfassen & Extrahieren",
-  state_merge: "State zusammenführen",
-  state_persist: "State speichern",
-  changelog: "Changelog",
-  git_commit: "Git",
-  enrich: "Embeddings & Briefing",
-  complete: "Abgeschlossen",
-};
-
-function labelFor(raw: string | null | undefined): string {
-  if (!raw) return "Aktivität";
-  return PIPELINE_LABELS[raw] ?? raw.replaceAll("_", " ");
-}
+const labelFor = labelForPipelineStep;
 
 export function useProjectSSE(projectId: string) {
   const token = useAuthStore((s) => s.token);

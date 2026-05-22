@@ -24,8 +24,32 @@ export interface ChatStreamState {
   lastError: ChatStreamError | null;
 }
 
+export interface ActiveToolCall {
+  call_id: string;
+  tool_name: string;
+  args: Record<string, unknown>;
+  result_summary?: string;
+  status: "running" | "done";
+}
+
+export interface MutationCardData {
+  undo_token: string;
+  description: string;
+  expires_in: number;  // seconds
+  created_at: number;  // Date.now() at receipt
+}
+
 export interface ModelInfo {
   id: string;
   label: string;
   role: "chat" | "extraction" | "embedding";
+}
+
+export interface ChatSession {
+  id: string;
+  project_id: string;
+  title: string | null;
+  created_at: string;
+  last_message_at: string;
+  message_count: number;
 }

@@ -1,4 +1,5 @@
 "use client";
+
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,22 +8,51 @@ import { api } from "@/lib/api";
 import { useChatStream } from "@/hooks/useChatStream";
 import { ChatMessageComponent } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
+import { ToolPill } from "./ToolPill";
+import { MutationCard } from "./MutationCard";
 import type { ChatMessage, ModelInfo } from "@/types/chat";
 
 interface ChatInterfaceProps {
   projectId: string;
+  onInputFocus?: () => void;
+  onSessionIdChange?: (id: string | null) => void;
+  onStartNewSession?: (fn: () => void) => void;
+  /** When true, the ChatInput is not rendered. The parent provides one. */
+  hideInput?: boolean;
+  /**
+   * Initial user-provided text to immediately send when mounted.
+   * Used when the landing-view's chat input transitions into conversation.
+   */
+  initialPrompt?: string | null;
+  onInitialPromptHandled?: () => void;
 }
 
-export function ChatInterface({ projectId }: ChatInterfaceProps) {
+export function ChatInterface({
+  projectId,
+  onInputFocus,
+  onSessionIdChange,
+  onStartNewSession,
+  hideInput = false,
+  initialPrompt = null,
+  onInitialPromptHandled,
+}: ChatInterfaceProps) {
   const qc = useQueryClient();
-  const { streaming, sending, streamingText, activeTools, lastError, sendMessage, abort, clearError } = useChatStream(projectId);
+  const { streaming, sending, streamingText, activeTools, lastError, currentSessionId, activeToolCalls, mutationCards, sendMessage, abort, clearError, startNewSession } = useChatStream(projectId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<ChatMessage[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
 
+  // Only fetch history when a specific session is active.
+  // When currentSessionId is null (new chat), show empty state.
   const { data: history } = useQuery<ChatMessage[]>({
-    queryKey: ["projects", projectId, "chat", "history"],
-    queryFn: () => api.get<ChatMessage[]>(`/api/projects/${projectId}/chat/history`),
+    queryKey: currentSessionId
+      ? ["projects", projectId, "chat", "sessions", currentSessionId, "messages"]
+      : ["projects", projectId, "chat", "history", "disabled"],
+    queryFn: () =>
+      currentSessionId
+        ? api.get<ChatMessage[]>(`/api/projects/${projectId}/chat/sessions/${currentSessionId}/messages`)
+        : Promise.resolve([]),
+    enabled: currentSessionId !== null,
   });
 
   const { data: models, error: modelsError } = useQuery<ModelInfo[]>({
@@ -43,6 +73,16 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [history, streamingText, optimisticMessages]);
+
+  // Propagate currentSessionId changes upward.
+  useEffect(() => {
+    onSessionIdChange?.(currentSessionId);
+  }, [currentSessionId, onSessionIdChange]);
+
+  // Register startNewSession with parent so ChatPanel/CockpitLayout can trigger it.
+  useEffect(() => {
+    onStartNewSession?.(startNewSession);
+  }, [startNewSession, onStartNewSession]);
 
   const handleSend = (content: string) => {
     const optimisticUser: ChatMessage = {
@@ -101,6 +141,17 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
     setOptimisticMessages([]);
     qc.invalidateQueries({ queryKey: ["projects", projectId, "chat", "history"] });
   };
+
+  // Fire-and-forget the initial prompt exactly once.
+  const handledInitialRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!initialPrompt) return;
+    if (handledInitialRef.current === initialPrompt) return;
+    handledInitialRef.current = initialPrompt;
+    handleSend(initialPrompt);
+    onInitialPromptHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt]);
 
   // Dedupe optimistic messages whose content already landed in history.
   // Pairs match by role + content (within last N history entries — cheap O(N)).
@@ -174,11 +225,19 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
             </button>
           </div>
         )}
-        {allMessages.length === 0 && !streaming && !noActiveProvider && (
-          <div className="h-full flex items-center justify-center">
-            <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Stell eine Frage zu diesem Projekt.
-            </p>
+        {allMessages.length === 0 && !streaming && !sending && !noActiveProvider && !hideInput && (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 px-4 py-12">
+            <p className="text-sm mb-2" style={{ color: "var(--text-muted)" }}>Stell eine Frage zu diesem Projekt</p>
+            {["Was sind die offenen Tasks?", "Welche Deadlines stehen an?", "Fasse den aktuellen Status zusammen"].map(prompt => (
+              <button
+                key={prompt}
+                onClick={() => handleSend(prompt)}
+                className="text-sm px-4 py-2 rounded-lg w-full max-w-sm text-left"
+                style={{ background: "var(--bg-surface)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+              >
+                {prompt}
+              </button>
+            ))}
           </div>
         )}
         {allMessages.map((msg) => (
@@ -206,22 +265,39 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
             Anfrage wird gesendet…
           </div>
         )}
-        {activeTools.length > 0 && (
+        {activeToolCalls.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-1">
+            {activeToolCalls.map(tc => (
+              <ToolPill key={tc.call_id} toolCall={tc} />
+            ))}
+          </div>
+        )}
+        {activeTools.length > 0 && activeToolCalls.length === 0 && (
           <div className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
             Nutzt Tools: {activeTools.join(", ")}
           </div>
         )}
         <div ref={bottomRef} />
       </div>
-      <ChatInput
-        onSend={handleSend}
-        onAbort={handleAbort}
-        disabled={sending && !streaming}
-        sending={sending || streaming}
-        models={models}
-        selectedModel={selectedModel}
-        onModelChange={setSelectedModel}
-      />
+      {mutationCards.length > 0 && (
+        <div className="px-4 pb-2 flex flex-col gap-1">
+          {mutationCards.map(card => (
+            <MutationCard key={card.undo_token} card={card} projectId={projectId} />
+          ))}
+        </div>
+      )}
+      {!hideInput && (
+        <ChatInput
+          onSend={handleSend}
+          onAbort={handleAbort}
+          disabled={sending && !streaming}
+          sending={sending || streaming}
+          models={models}
+          selectedModel={selectedModel}
+          onModelChange={setSelectedModel}
+          onFocus={onInputFocus}
+        />
+      )}
     </div>
   );
 }
