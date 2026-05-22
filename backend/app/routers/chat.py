@@ -1,27 +1,32 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import json
+import secrets
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
+from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent_config import MAX_AGENT_ROUNDS
 from app.auth import get_current_user, get_project_member
-from app.database import get_db
+from app.config import settings
+from app.database import async_session_factory, get_db
 from app.models.document import Document
 from app.models.project import Project, ProjectMember
-from app.models.state import ChatMessage, ProjectState, StateChangelog
+from app.models.state import ChatMessage, ChatSession, ProjectState, StateChangelog
 from app.models.user import User
 from app.routers.chat_tools import TOOL_ARG_MODELS
-from app.schemas.chat import ChatMessageCreate, ChatMessageResponse
+from app.schemas.chat import ChatMessageCreate, ChatMessageResponse, ChatSessionResponse
 from app.services.provider_resolver import get_active_provider
 from app.services import briefing as briefing_service
 from app.services import git_service
@@ -241,7 +246,28 @@ Nutze Tools proaktiv und intelligent:
 # Tool execution
 # ---------------------------------------------------------------------------
 
-async def _execute_tool(tool_name: str, tool_args: dict, project_id: uuid.UUID, db: AsyncSession) -> Any:
+def _make_tool_summary(tool_name: str, result: dict) -> str:
+    if tool_name == "search_documents":
+        count = len(result.get("results", []))
+        return f"{count} Dokument{'e' if count != 1 else ''} gefunden"
+    if tool_name == "list_documents":
+        count = len(result.get("documents", []) if isinstance(result, dict) else result if isinstance(result, list) else [])
+        return f"{count} Dokument{'e' if count != 1 else ''} aufgelistet"
+    if tool_name == "get_document_content":
+        fname = result.get("filename", "") if isinstance(result, dict) else ""
+        return f"Inhalt von '{fname}' geladen" if fname else "Dokument-Inhalt geladen"
+    if tool_name == "get_current_state":
+        return "Aktuellen Projektstatus abgerufen"
+    if tool_name == "get_state_history":
+        return "State-Historie abgerufen"
+    if tool_name == "update_task_status":
+        if isinstance(result, dict) and result.get("success"):
+            return f"Task '{result.get('title', '')}' → {result.get('new_status', '')}"
+        return "Task-Status-Änderung fehlgeschlagen"
+    return "Tool ausgeführt"
+
+
+async def _execute_tool(tool_name: str, tool_args: dict, project_id: uuid.UUID, db: AsyncSession, redis_client: Redis | None = None) -> Any:
     model_cls = TOOL_ARG_MODELS.get(tool_name)
     if model_cls is None:
         return {"error": f"Unknown tool: {tool_name}"}
@@ -319,12 +345,12 @@ async def _execute_tool(tool_name: str, tool_args: dict, project_id: uuid.UUID, 
         return {"content": doc.raw_content or "", "filename": doc.original_filename}
 
     if tool_name == "update_task_status":
-        return await _update_task_status(tool_args, project_id, db)
+        return await _update_task_status(tool_args, project_id, db, redis_client=redis_client)
 
     return {"error": f"Unknown tool: {tool_name}"}
 
 
-async def _update_task_status(tool_args: dict, project_id: uuid.UUID, db: AsyncSession) -> dict:
+async def _update_task_status(tool_args: dict, project_id: uuid.UUID, db: AsyncSession, redis_client: Redis | None = None) -> dict:
     task_id = str(tool_args.get("task_id", "")).strip()
     new_status = str(tool_args.get("status", "")).strip()
 
@@ -393,13 +419,31 @@ async def _update_task_status(tool_args: dict, project_id: uuid.UUID, db: AsyncS
     changelog.git_commit_hash = commit_hash
     await db.commit()
 
-    return {
+    result: dict[str, Any] = {
         "success": True,
         "task_id": task_id,
         "title": task.get("title"),
         "old_status": old_status,
         "new_status": new_status,
     }
+
+    if redis_client is not None:
+        undo_token = secrets.token_urlsafe(16)
+        await redis_client.setex(
+            f"undo:{undo_token}",
+            30,
+            json.dumps({
+                "tool": "update_task_status",
+                "target_id": task_id,
+                "original_status": old_status,
+                "new_status": new_status,
+                "project_id": str(project_id),
+                "task_title": task.get("title"),
+            }),
+        )
+        result["undo_token"] = undo_token
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -413,11 +457,15 @@ async def _run_agent(
     db: AsyncSession,
     model_override: str | None,
     request: Request,
+    redis_client: Redis | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Multi-round agentic loop. Yields:
       {"type": "content_delta", "delta": str}
       {"type": "tool_call", "tools": [str]}
+      {"type": "tool_call_start", "call_id": str, "tool_name": str, "args": dict}
+      {"type": "tool_call_end", "call_id": str, "tool_name": str, "result_summary": str}
+      {"type": "mutation_card", "undo_token": str, "description": str, "expires_in": int}
     """
     msgs = list(messages)  # local copy
 
@@ -468,7 +516,26 @@ async def _run_agent(
                 args = json.loads(tc["arguments"] or "{}")
             except json.JSONDecodeError:
                 args = {}
-            result = await _execute_tool(tc["name"], args, project_id, db)
+            yield {
+                "type": "tool_call_start",
+                "call_id": tc["id"],
+                "tool_name": tc["name"],
+                "args": args,
+            }
+            result = await _execute_tool(tc["name"], args, project_id, db, redis_client=redis_client)
+            yield {
+                "type": "tool_call_end",
+                "call_id": tc["id"],
+                "tool_name": tc["name"],
+                "result_summary": _make_tool_summary(tc["name"], result if isinstance(result, dict) else {}),
+            }
+            if tc["name"] == "update_task_status" and isinstance(result, dict) and result.get("undo_token"):
+                yield {
+                    "type": "mutation_card",
+                    "undo_token": result["undo_token"],
+                    "description": f"Task '{result.get('title', '')}' → {result.get('new_status', '')}",
+                    "expires_in": 30,
+                }
             msgs.append({
                 "role": "tool",
                 "tool_call_id": tc["id"],
@@ -521,17 +588,40 @@ async def chat(
     documents: list[Document] = list(docs_result.scalars().all())
     history: list[ChatMessage] = list(history_result.scalars().all())
 
+    # Resolve or create a chat session.
+    session_id = payload.session_id
+    is_new_session = session_id is None
+    if session_id is None:
+        session = ChatSession(project_id=project_id)
+        db.add(session)
+        await db.flush()  # populate session.id without committing yet
+        session_id = session.id
+    else:
+        session = await db.get(ChatSession, session_id)
+        if not session or session.project_id != project_id:
+            raise HTTPException(status_code=404, detail="Chat session not found")
+        is_new_session = session.message_count == 0
+
     # Persist the user message right away.
     user_msg = ChatMessage(
         project_id=project_id,
         user_id=current_user.id,
         role="user",
         content=payload.content,
+        session_id=session_id,
         state_version=current_state.version if current_state else None,
         model=payload.model,
     )
     db.add(user_msg)
+    session.last_message_at = datetime.now(timezone.utc)
+    session.message_count = (session.message_count or 0) + 1
     await db.commit()
+
+    # Auto-generate title for the first message in a new session.
+    if is_new_session:
+        asyncio.create_task(
+            _generate_session_title(session_id, payload.content)
+        )
 
     # Determine active tools (disable search when no embedding provider is active).
     embeddings_enabled = await get_active_provider("embedding", db) is not None
@@ -545,6 +635,9 @@ async def chat(
             messages.append({"role": msg.role, "content": msg.content})
     messages.append({"role": "user", "content": payload.content})
 
+    # Redis client for undo tokens (closed at end of stream).
+    redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
+
     # Streaming generator.
     async def generate():
         collected: list[str] = []
@@ -553,9 +646,9 @@ async def chat(
         disconnected = False
 
         try:
-            yield f"data: {json.dumps({'type': 'message_start'})}\n\n"
+            yield f"data: {json.dumps({'type': 'message_start', 'session_id': str(session_id)})}\n\n"
 
-            async for event in _run_agent(messages, active_tools, project_id, db, payload.model, request):
+            async for event in _run_agent(messages, active_tools, project_id, db, payload.model, request, redis_client=redis_client):
                 if await request.is_disconnected():
                     disconnected = True
                     break
@@ -566,6 +659,8 @@ async def chat(
                 elif event["type"] == "tool_call":
                     tool_calls_log.extend(event["tools"])
                     yield f"data: {json.dumps({'type': 'tool_call', 'tools': event['tools']})}\n\n"
+                elif event["type"] in ("tool_call_start", "tool_call_end", "mutation_card"):
+                    yield f"data: {json.dumps(event)}\n\n"
 
             if await request.is_disconnected():
                 disconnected = True
@@ -585,6 +680,11 @@ async def chat(
                 )
                 error_code = "provider_config_corrupt"
             yield f"data: {json.dumps({'type': 'error', 'code': error_code, 'message': user_message})}\n\n"
+        finally:
+            try:
+                await redis_client.aclose()
+            except Exception:
+                pass
 
         # Save whatever we collected (partial or full).
         if collected:
@@ -592,6 +692,7 @@ async def chat(
             assistant_msg = ChatMessage(
                 project_id=project_id,
                 role="assistant",
+                session_id=session_id,
                 content=full_content,
                 tool_calls={"calls": tool_calls_log} if tool_calls_log else None,
                 state_version=current_state.version if current_state else None,
@@ -599,6 +700,11 @@ async def chat(
             )
             try:
                 db.add(assistant_msg)
+                # Update session metadata for the assistant message too.
+                _session = await db.get(ChatSession, session_id)
+                if _session:
+                    _session.last_message_at = datetime.now(timezone.utc)
+                    _session.message_count = (_session.message_count or 0) + 1
                 await db.commit()
             except Exception as save_exc:
                 log.error("chat_save_failed", project_id=str(project_id), error=str(save_exc))
@@ -648,6 +754,157 @@ async def delete_chat_history(
     from sqlalchemy import delete as sa_delete
     await db.execute(sa_delete(ChatMessage).where(ChatMessage.project_id == project_id))
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Chat session endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/sessions", response_model=ChatSessionResponse, status_code=status.HTTP_201_CREATED)
+async def create_chat_session(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(get_project_member),
+):
+    session = ChatSession(project_id=project_id)
+    db.add(session)
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+@router.get("/sessions", response_model=list[ChatSessionResponse])
+async def list_chat_sessions(
+    project_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(get_project_member),
+):
+    result = await db.execute(
+        select(ChatSession)
+        .where(ChatSession.project_id == project_id, ChatSession.archived_at.is_(None))
+        .order_by(ChatSession.last_message_at.desc())
+    )
+    return result.scalars().all()
+
+
+@router.get("/sessions/{session_id}/messages", response_model=list[ChatMessageResponse])
+async def get_session_messages(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(get_project_member),
+):
+    result = await db.execute(
+        select(ChatMessage)
+        .where(ChatMessage.project_id == project_id, ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.asc())
+        .limit(limit)
+    )
+    return result.scalars().all()
+
+
+@router.patch("/sessions/{session_id}", response_model=ChatSessionResponse)
+async def update_chat_session(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(get_project_member),
+):
+    session = await db.get(ChatSession, session_id)
+    if not session or session.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Chat session not found")
+    if "title" in body:
+        session.title = body["title"]
+    if "archived_at" in body:
+        session.archived_at = body["archived_at"]
+    await db.commit()
+    await db.refresh(session)
+    return session
+
+
+# ---------------------------------------------------------------------------
+# Background helpers
+# ---------------------------------------------------------------------------
+
+
+async def _generate_session_title(session_id: uuid.UUID, content: str) -> None:
+    """Generate a short title for a new chat session via LLM and save it."""
+    try:
+        messages = [
+            {
+                "role": "user",
+                "content": (
+                    f"Erstelle einen kurzen Titel (max. 8 Wörter) für einen Chat der mit folgender "
+                    f"Frage beginnt: '{content[:200]}'. Antworte nur mit dem Titel, ohne Anführungszeichen."
+                ),
+            }
+        ]
+        response = await llm_service.complete(messages, purpose="general", model_override=None)
+        title = response.choices[0].message.content or ""
+        title = title.strip().strip('"').strip("'")
+        if not title:
+            title = content[:40]
+    except Exception:
+        log.warning("session_title_generation_failed", session_id=str(session_id))
+        title = content[:40]
+
+    try:
+        async with async_session_factory() as db:
+            session = await db.get(ChatSession, session_id)
+            if session and not session.title:
+                session.title = title
+                await db.commit()
+    except Exception:
+        log.warning("session_title_save_failed", session_id=str(session_id))
+
+
+# ---------------------------------------------------------------------------
+# Mutation undo endpoint
+# ---------------------------------------------------------------------------
+
+@router.post("/mutations/{undo_token}/revert", status_code=200)
+async def revert_mutation(
+    project_id: uuid.UUID,
+    undo_token: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _member: ProjectMember = Depends(get_project_member),
+):
+    redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
+    try:
+        raw = await redis_client.get(f"undo:{undo_token}")
+        if not raw:
+            raise HTTPException(status_code=404, detail="Undo-Token abgelaufen oder nicht gefunden")
+
+        data = json.loads(raw)
+        if data["project_id"] != str(project_id):
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Single-use: delete before applying inverse so concurrent requests fail cleanly.
+        await redis_client.delete(f"undo:{undo_token}")
+
+        if data["tool"] == "update_task_status":
+            result = await _update_task_status(
+                {"task_id": data["target_id"], "status": data["original_status"]},
+                project_id,
+                db,
+                redis_client=None,  # No new undo token for undo operations.
+            )
+            if result.get("success"):
+                return {
+                    "success": True,
+                    "message": f"Rückgängig: Task '{data.get('task_title')}' → {data['original_status']}",
+                }
+            return {"success": False, "message": "Undo fehlgeschlagen"}
+
+        raise HTTPException(status_code=400, detail=f"Undo nicht unterstützt für {data['tool']}")
+    finally:
+        try:
+            await redis_client.aclose()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
