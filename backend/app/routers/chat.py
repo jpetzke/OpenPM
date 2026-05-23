@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent_config import MAX_AGENT_ROUNDS
@@ -267,7 +267,14 @@ def _make_tool_summary(tool_name: str, result: dict) -> str:
     return "Tool ausgeführt"
 
 
-async def _execute_tool(tool_name: str, tool_args: dict, project_id: uuid.UUID, db: AsyncSession, redis_client: Redis | None = None) -> Any:
+async def _execute_tool(
+    tool_name: str,
+    tool_args: dict,
+    project_id: uuid.UUID,
+    db: AsyncSession,
+    redis_client: Redis | None = None,
+    session_id: uuid.UUID | str | None = None,
+) -> Any:
     model_cls = TOOL_ARG_MODELS.get(tool_name)
     if model_cls is None:
         return {"error": f"Unknown tool: {tool_name}"}
@@ -333,7 +340,25 @@ async def _execute_tool(tool_name: str, tool_args: dict, project_id: uuid.UUID, 
         limit_arg = tool_args.get("limit")
         limit = min(int(limit_arg) if limit_arg is not None else 5, 10)
         results = await qdrant_service.search(str(project_id), tool_args["query"], limit)
-        return [{"chunk_text": r.chunk_text, "source_filename": r.source_filename, "score": r.score} for r in results]
+        search_results = [{"chunk_text": r.chunk_text, "source_filename": r.source_filename, "score": r.score} for r in results]
+        docs_count_result = await db.execute(
+            select(func.count()).select_from(Document).where(Document.project_id == project_id)
+        )
+        total_docs = docs_count_result.scalar() or 0
+        partial_count_result = await db.execute(
+            select(func.count()).select_from(Document).where(
+                Document.project_id == project_id,
+                Document.processing_status == "completed_partial",
+            )
+        )
+        partial_docs = partial_count_result.scalar() or 0
+        if partial_docs > 0:
+            warning = (
+                f"Suche aktuell auf {total_docs - partial_docs} von {total_docs} Docs "
+                f"eingeschränkt — {partial_docs} Doc(s) hatten Embedding-Fehler."
+            )
+            return {"warning": warning, "results": search_results}
+        return search_results
 
     if tool_name == "get_document_content":
         result = await db.execute(
@@ -345,12 +370,35 @@ async def _execute_tool(tool_name: str, tool_args: dict, project_id: uuid.UUID, 
         return {"content": doc.raw_content or "", "filename": doc.original_filename}
 
     if tool_name == "update_task_status":
-        return await _update_task_status(tool_args, project_id, db, redis_client=redis_client)
+        return await _update_task_status(tool_args, project_id, db, redis_client=redis_client, session_id=session_id)
 
     return {"error": f"Unknown tool: {tool_name}"}
 
 
-async def _update_task_status(tool_args: dict, project_id: uuid.UUID, db: AsyncSession, redis_client: Redis | None = None) -> dict:
+def _append_chat_source(item: dict, session_id: uuid.UUID | str | None) -> None:
+    """Append ``chat:{session_id}`` to ``item.source_document_ids`` (dedup)."""
+    if session_id is None:
+        return
+    tag = f"chat:{session_id}"
+    sources = item.get("source_document_ids")
+    if not isinstance(sources, list):
+        sources = []
+    # Fold legacy singular field into the list.
+    legacy = item.pop("source_document_id", None)
+    if legacy and str(legacy) not in sources:
+        sources.append(str(legacy))
+    if tag not in sources:
+        sources.append(tag)
+    item["source_document_ids"] = sources
+
+
+async def _update_task_status(
+    tool_args: dict,
+    project_id: uuid.UUID,
+    db: AsyncSession,
+    redis_client: Redis | None = None,
+    session_id: uuid.UUID | str | None = None,
+) -> dict:
     task_id = str(tool_args.get("task_id", "")).strip()
     new_status = str(tool_args.get("status", "")).strip()
 
@@ -377,6 +425,7 @@ async def _update_task_status(tool_args: dict, project_id: uuid.UUID, db: AsyncS
 
     old_status = task.get("status")
     task["status"] = new_status
+    _append_chat_source(task, session_id)
 
     new_version = current.version + 1
     new_project_state = ProjectState(
@@ -458,6 +507,7 @@ async def _run_agent(
     model_override: str | None,
     request: Request,
     redis_client: Redis | None = None,
+    session_id: uuid.UUID | str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """
     Multi-round agentic loop. Yields:
@@ -522,7 +572,10 @@ async def _run_agent(
                 "tool_name": tc["name"],
                 "args": args,
             }
-            result = await _execute_tool(tc["name"], args, project_id, db, redis_client=redis_client)
+            result = await _execute_tool(
+                tc["name"], args, project_id, db,
+                redis_client=redis_client, session_id=session_id,
+            )
             yield {
                 "type": "tool_call_end",
                 "call_id": tc["id"],
@@ -648,7 +701,10 @@ async def chat(
         try:
             yield f"data: {json.dumps({'type': 'message_start', 'session_id': str(session_id)})}\n\n"
 
-            async for event in _run_agent(messages, active_tools, project_id, db, payload.model, request, redis_client=redis_client):
+            async for event in _run_agent(
+                messages, active_tools, project_id, db, payload.model, request,
+                redis_client=redis_client, session_id=session_id,
+            ):
                 if await request.is_disconnected():
                     disconnected = True
                     break

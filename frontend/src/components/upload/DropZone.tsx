@@ -3,7 +3,13 @@ import { useCallback, useRef, useState } from "react";
 import { UploadCloud, X, AlertCircle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
-import { uploadFile, type UploadHandle } from "@/lib/upload";
+import {
+  uploadFile,
+  type UploadHandle,
+  isDuplicateError,
+  isUnsupportedError,
+} from "@/lib/upload";
+import { TextPasteModal } from "./TextPasteModal";
 import { formatBytes } from "@/lib/utils";
 
 interface DropZoneProps {
@@ -43,10 +49,11 @@ export function DropZone({ projectId }: DropZoneProps) {
   const dragDepthRef = useRef(0);
   const [dragging, setDragging] = useState(false);
   const [items, setItems] = useState<UploadItem[]>([]);
+  const [pasteModalOpen, setPasteModalOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const startUpload = useCallback(
-    (file: File) => {
+    (file: File, opts: { allowDuplicate?: boolean } = {}) => {
       if (file.size > MAX_SIZE) {
         toast.error(`${file.name}: zu groß (max. 50 MB)`);
         return;
@@ -56,6 +63,7 @@ export function DropZone({ projectId }: DropZoneProps) {
         `/api/projects/${projectId}/documents`,
         file,
         {
+          allowDuplicate: opts.allowDuplicate,
           onProgress: (loaded, total) => {
             const pct = total > 0 ? loaded / total : 0;
             setItems((prev) =>
@@ -80,7 +88,37 @@ export function DropZone({ projectId }: DropZoneProps) {
             setItems((prev) => prev.filter((it) => it.id !== id));
           }, 1200);
         })
-        .catch((err) => {
+        .catch((err: unknown) => {
+          // 409 duplicate — ask, then retry with allow_duplicate=true.
+          if (isDuplicateError(err)) {
+            setItems((prev) => prev.filter((it) => it.id !== id));
+            const ok = window.confirm(
+              `Diese Datei existiert schon als „${err.existingFilename}“. Trotzdem hochladen?`,
+            );
+            if (ok) startUpload(file, { allowDuplicate: true });
+            return;
+          }
+          // 415 unsupported — toast + offer paste fallback.
+          if (isUnsupportedError(err)) {
+            const allowed = err.allowed.length
+              ? err.allowed.join(" · ")
+              : "PDF · DOCX · XLSX · CSV · TXT · MD";
+            setItems((prev) =>
+              prev.map((it) =>
+                it.id === id
+                  ? { ...it, status: "error", error: "Format nicht unterstützt" }
+                  : it,
+              ),
+            );
+            toast.error(`${file.name}: Format nicht unterstützt`, {
+              description: `Erlaubt: ${allowed}`,
+              action: {
+                label: "Als Text einfügen?",
+                onClick: () => setPasteModalOpen(true),
+              },
+            });
+            return;
+          }
           const msg = shortError((err as { detail?: unknown })?.detail ?? err);
           setItems((prev) =>
             prev.map((it) =>
@@ -94,7 +132,7 @@ export function DropZone({ projectId }: DropZoneProps) {
   );
 
   const handleFiles = (files: FileList | File[]) => {
-    Array.from(files).forEach(startUpload);
+    Array.from(files).forEach((f) => startUpload(f));
   };
 
   const onDragEnter = (e: React.DragEvent) => {
@@ -188,6 +226,13 @@ export function DropZone({ projectId }: DropZoneProps) {
           {ALLOWED_HINT} · bis 50 MB
         </p>
       </div>
+
+      {pasteModalOpen && (
+        <TextPasteModal
+          projectId={projectId}
+          onClose={() => setPasteModalOpen(false)}
+        />
+      )}
 
       {items.length > 0 && (
         <ul className="space-y-1">

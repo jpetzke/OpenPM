@@ -3,13 +3,28 @@ import { CheckSquare, Square, AlertCircle } from "lucide-react";
 import { useOptimisticTask } from "@/hooks/useOptimisticTask";
 import { formatDate } from "@/lib/utils";
 import type { Task } from "@/types/state";
+import type { DocumentMeta } from "@/hooks/useDocuments";
+import type { ConflictInfo } from "@/lib/conflicts";
+import { SourcePill } from "./SourcePill";
+import {
+  ConfidenceBadge,
+  confidenceBorderClass,
+} from "./ConfidenceBadge";
+import { ConflictBadge } from "./ConflictBadge";
 
 interface TaskCardProps {
   task: Task;
   projectId: string;
+  documentsById: Record<string, DocumentMeta>;
+  conflict?: ConflictInfo;
 }
 
-export function TaskCard({ task, projectId }: TaskCardProps) {
+export function TaskCard({
+  task,
+  projectId,
+  documentsById,
+  conflict,
+}: TaskCardProps) {
   const mutation = useOptimisticTask(projectId);
   const isDone = task.status === "done";
   const isBlocked = task.status === "blocked";
@@ -32,8 +47,17 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
       ? "var(--warning)"
       : "var(--text-muted)";
 
+  const sourceIds =
+    task.source_document_ids ??
+    (task.source_document_id ? [task.source_document_id] : []);
+
+  const border = confidenceBorderClass(task.confidence);
+
   return (
-    <div className="flex items-start gap-2 py-2">
+    <div
+      id={`task-${task.id}`}
+      className={`flex items-start gap-2 py-2 px-1 rounded-md ${border}`}
+    >
       <button
         onClick={toggle}
         disabled={mutation.isPending}
@@ -49,24 +73,28 @@ export function TaskCard({ task, projectId }: TaskCardProps) {
         )}
       </button>
       <div className="flex-1 min-w-0">
-        <p
-          className="text-sm"
-          style={{
-            color: isDone ? "var(--text-muted)" : "var(--text-primary)",
-            textDecoration: isDone ? "line-through" : "none",
-          }}
-        >
-          {task.title}
-        </p>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <p
+            className="text-sm"
+            style={{
+              color: isDone ? "var(--text-muted)" : "var(--text-primary)",
+              textDecoration: isDone ? "line-through" : "none",
+            }}
+          >
+            {task.title}
+          </p>
+          <ConfidenceBadge confidence={task.confidence} />
+          <ConflictBadge conflict={conflict} />
+        </div>
         {task.deadline && (
           <p className="text-xs mt-0.5" style={{ color: deadlineColor }}>
             fällig {formatDate(task.deadline)}
           </p>
         )}
-        {task.source_document_id && (
-          <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-            {task.source_document_id}
-          </p>
+        {sourceIds.length > 0 && (
+          <div className="mt-1.5">
+            <SourcePill ids={sourceIds} documents={documentsById} projectId={projectId} />
+          </div>
         )}
       </div>
     </div>

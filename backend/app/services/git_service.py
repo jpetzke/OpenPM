@@ -86,3 +86,7 @@ def get_diff(project_id: str, from_hash: str, to_hash: str) -> str:
     b = repo.get(to_hash).tree
     diff = repo.diff(a, b)
     return diff.patch or ""
+
+
+def revert_to_version(project_id: str, target_state: dict, message: str) -> str:
+    return commit_state(project_id, target_state, message)

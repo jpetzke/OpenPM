@@ -62,3 +62,47 @@ export const api = {
     request<T>(path, { method: "POST", body: formData }),
   getToken: () => useAuthStore.getState().token,
 };
+
+export interface DiffItem {
+  type: string;
+  title: string;
+}
+
+export interface DiffPreview {
+  additions: DiffItem[];
+  removals: DiffItem[];
+  modifications: DiffItem[];
+}
+
+export function replaceDocumentDryRun(
+  projectId: string,
+  docId: string,
+  file: File
+): Promise<DiffPreview> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return request<DiffPreview>(
+    `/api/projects/${projectId}/documents/${docId}/replace?dry_run=true`,
+    { method: "POST", body: formData }
+  );
+}
+
+export function replaceDocument(
+  projectId: string,
+  docId: string,
+  file: File
+): Promise<import("@/types/document").Document> {
+  const formData = new FormData();
+  formData.append("file", file);
+  return request<import("@/types/document").Document>(
+    `/api/projects/${projectId}/documents/${docId}/replace`,
+    { method: "POST", body: formData }
+  );
+}
+
+export function restoreDocument(projectId: string, docId: string): Promise<void> {
+  return request<void>(
+    `/api/projects/${projectId}/documents/${docId}/restore`,
+    { method: "POST" }
+  );
+}

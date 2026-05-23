@@ -5,7 +5,7 @@ import time
 from typing import Any
 
 import structlog
-from openai import AsyncOpenAI, RateLimitError
+from openai import AsyncOpenAI, APIStatusError, APITimeoutError, RateLimitError
 
 from app.schemas.provider_config import ModelRole
 from app.services.provider_resolver import (
@@ -13,6 +13,42 @@ from app.services.provider_resolver import (
     candidate_models,
     require_active_provider,
 )
+
+
+class LLMError(Exception):
+    pass
+
+
+class LLMRateLimit(LLMError):
+    pass
+
+
+class LLMTimeout(LLMError):
+    pass
+
+
+class LLMServerError(LLMError):
+    pass
+
+
+class LLMInvalidJSON(LLMError):
+    pass
+
+
+def _wrap_openai_exc(exc: Exception) -> Exception:
+    if isinstance(exc, RateLimitError):
+        wrapped = LLMRateLimit(str(exc))
+        wrapped.__cause__ = exc
+        return wrapped
+    if isinstance(exc, APITimeoutError):
+        wrapped = LLMTimeout(str(exc))
+        wrapped.__cause__ = exc
+        return wrapped
+    if isinstance(exc, APIStatusError) and exc.status_code >= 500:
+        wrapped = LLMServerError(str(exc))
+        wrapped.__cause__ = exc
+        return wrapped
+    return exc
 
 log = structlog.get_logger()
 
@@ -65,7 +101,8 @@ async def complete(
         try:
             response = await client.chat.completions.create(**kwargs)
         except RateLimitError as exc:
-            last_exc = exc
+            wrapped = LLMRateLimit(str(exc))
+            last_exc = wrapped
             log.warning(
                 "llm_complete_rate_limited",
                 purpose=purpose,
@@ -75,10 +112,11 @@ async def complete(
             )
             if index < len(candidates) - 1:
                 continue
-            raise
+            raise wrapped from exc
         except Exception as exc:
+            typed = _wrap_openai_exc(exc)
             log.error("llm_complete_failed", purpose=purpose, model=model, error=str(exc))
-            raise
+            raise typed
         log.info(
             "llm_complete_finished",
             purpose=purpose,
@@ -139,7 +177,8 @@ async def stream(
             )
             return
         except RateLimitError as exc:
-            last_exc = exc
+            wrapped = LLMRateLimit(str(exc))
+            last_exc = wrapped
             log.warning(
                 "llm_stream_rate_limited",
                 purpose=purpose,
@@ -148,11 +187,12 @@ async def stream(
                 error=str(exc),
             )
             if yielded_any or index == len(candidates) - 1:
-                raise
+                raise wrapped from exc
             continue
         except Exception as exc:
+            typed = _wrap_openai_exc(exc)
             log.error("llm_stream_failed", purpose=purpose, model=model, error=str(exc))
-            raise
+            raise typed
 
     if last_exc is not None:
         raise last_exc
@@ -234,7 +274,8 @@ async def agent_round(
             return
 
         except RateLimitError as exc:
-            last_exc = exc
+            wrapped = LLMRateLimit(str(exc))
+            last_exc = wrapped
             log.warning(
                 "llm_agent_round_rate_limited",
                 purpose=purpose,
@@ -243,11 +284,12 @@ async def agent_round(
                 error=str(exc),
             )
             if yielded_any or model_override or index == len(candidates) - 1:
-                raise
+                raise wrapped from exc
             continue
         except Exception as exc:
+            typed = _wrap_openai_exc(exc)
             log.error("llm_agent_round_failed", purpose=purpose, model=model, error=str(exc))
-            raise
+            raise typed
 
     if last_exc is not None:
         raise last_exc

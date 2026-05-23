@@ -1,20 +1,38 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertOctagon,
+  Calendar,
   CheckCircle2,
+  CheckSquare,
   Clock,
+  LayoutList,
   Loader2,
+  MoreVertical,
   RefreshCw,
-  Trash2,
+  Scale,
+  User,
   XCircle,
   ChevronDown,
+  Ban,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { usePipelineStore } from "@/store/pipelineStore";
+import { api, replaceDocumentDryRun, replaceDocument, type DiffPreview } from "@/lib/api";
+import { DiffPreviewModal } from "./DiffPreviewModal";
+import {
+  usePipelineStore,
+  type ExtractedItem,
+  type ExtractedItemType,
+} from "@/store/pipelineStore";
 import { formatBytes, formatRelativeTime } from "@/lib/utils";
-import { labelForPipelineStep } from "@/lib/pipeline-phases";
+import {
+  labelForPipelineStep,
+  PHASE_ORDER,
+  PIPELINE_PHASE_LABELS,
+  phaseIndexForStep,
+  type PipelinePhase,
+} from "@/lib/pipeline-phases";
 import type { Document, DocumentStatus, PipelineLogEntry } from "@/types/document";
 
 function labelFor(raw: string | null | undefined): string {
@@ -22,11 +40,15 @@ function labelFor(raw: string | null | undefined): string {
   return labelForPipelineStep(raw);
 }
 
-function StatusGlyph({ status }: { status: DocumentStatus }) {
+function StatusGlyph({ status }: { status: DocumentStatus | "cancelled" }) {
   if (status === "done")
     return <CheckCircle2 size={14} style={{ color: "var(--success)" }} />;
   if (status === "failed")
     return <XCircle size={14} style={{ color: "var(--danger)" }} />;
+  if (status === "cancelled")
+    return <Ban size={14} style={{ color: "var(--text-muted)" }} />;
+  if (status === "completed_partial")
+    return <AlertOctagon size={14} style={{ color: "var(--warning)" }} />;
   if (status === "processing")
     return (
       <Loader2
@@ -42,14 +64,28 @@ interface DocumentCardProps {
   doc: Document;
   projectId: string;
   onDelete: (doc: Document) => void;
+  onRestore?: (doc: Document) => void;
 }
 
-export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
+type WideStatus = DocumentStatus | "cancelled";
+
+export function DocumentCard({ doc, projectId, onDelete, onRestore }: DocumentCardProps) {
   const qc = useQueryClient();
   const livePipeline = usePipelineStore((s) => s.pipelines[doc.id]);
   const liveDetail = usePipelineStore((s) => s.details[doc.id]);
+  const liveItems = usePipelineStore((s) => s.liveItemsByDoc[doc.id]);
+  const liveExpanded = usePipelineStore((s) => s.expandedDocs.has(doc.id));
+  const lastItemAt = usePipelineStore((s) => s.lastItemAtByDoc[doc.id]);
+  const collapseDoc = usePipelineStore((s) => s.collapseDoc);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const status: DocumentStatus = livePipeline ?? doc.processing_status;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [diffPreview, setDiffPreview] = useState<DiffPreview | null>(null);
+  const [pendingReplaceFile, setPendingReplaceFile] = useState<File | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const rawStatus = (livePipeline ?? doc.processing_status ?? "pending") as WideStatus;
   const step = liveDetail?.step ?? doc.pipeline_step ?? 0;
   const total = liveDetail?.total ?? 9;
   const labelRaw = liveDetail?.label ?? doc.pipeline_step_label;
@@ -59,20 +95,65 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
     ? liveDetail.logs
     : (doc.pipeline_logs ?? []);
 
+  // Current phase index 0..3 — derived from the latest known step.
+  const activePhaseIdx = useMemo(
+    () => phaseIndexForStep(labelRaw ?? undefined),
+    [labelRaw],
+  );
+
+  // Auto-collapse the live feed 3s after the last extracted_item, unless the
+  // doc has failed (then keep it expanded for inspection).
+  useEffect(() => {
+    if (!liveExpanded) return;
+    if (!lastItemAt) return;
+    if (rawStatus === "failed") return;
+    const timer = setTimeout(() => collapseDoc(doc.id), 3000);
+    return () => clearTimeout(timer);
+  }, [lastItemAt, liveExpanded, rawStatus, doc.id, collapseDoc]);
+
   const retry = useMutation({
     mutationFn: () =>
-      api.post<Document>(`/api/projects/${projectId}/documents/${doc.id}/reprocess`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] }),
+      // Stream A is moving us to `/retry`; older deployments still use
+      // `/reprocess`. Fall back to the legacy path if 404.
+      api
+        .post<Document>(`/api/projects/${projectId}/documents/${doc.id}/retry`)
+        .catch((err: { status?: number }) => {
+          if (err?.status === 404) {
+            return api.post<Document>(
+              `/api/projects/${projectId}/documents/${doc.id}/reprocess`,
+            );
+          }
+          throw err;
+        }),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] }),
     onError: () => toast.error("Erneut verarbeiten fehlgeschlagen"),
   });
 
-  const isActive = status === "processing" || status === "pending";
+  const cancel = useMutation({
+    mutationFn: () =>
+      api.delete(
+        `/api/projects/${projectId}/documents/${doc.id}?cancel_pipeline=true`,
+      ),
+    onSuccess: () =>
+      qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] }),
+    onError: () => toast.error("Abbrechen fehlgeschlagen"),
+  });
+
+  const isActive = rawStatus === "processing" || rawStatus === "pending";
+  const canRetry = rawStatus === "failed" || rawStatus === "cancelled" || rawStatus === "done" || rawStatus === "completed_partial";
+  const canCancel = isActive;
   const borderColor =
-    status === "failed" ? "color-mix(in srgb, var(--danger) 35%, var(--border))" : "var(--border)";
+    rawStatus === "failed" ? "color-mix(in srgb, var(--danger) 35%, var(--border))"
+    : rawStatus === "completed_partial" ? "color-mix(in srgb, var(--warning) 35%, var(--border))"
+    : "var(--border)";
 
   return (
+    <>
     <article
       className="rounded-[var(--radius)] border overflow-hidden upload-fade-up"
+      data-testid="document-card"
+      data-status={rawStatus}
       style={{
         background: "var(--bg-surface)",
         borderColor,
@@ -80,7 +161,7 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
     >
       <header className="flex items-start gap-3 px-4 py-3">
         <span className="pt-[3px]">
-          <StatusGlyph status={status} />
+          <StatusGlyph status={rawStatus} />
         </span>
         <div className="flex-1 min-w-0">
           <h3
@@ -94,7 +175,7 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
             style={{ color: "var(--text-muted)" }}
           >
             {formatBytes(doc.file_size)} · {formatRelativeTime(doc.uploaded_at)}
-            {status === "processing" && labelRaw && (
+            {rawStatus === "processing" && labelRaw && (
               <>
                 {" · "}
                 <span style={{ color: "var(--accent)" }}>
@@ -102,17 +183,23 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
                 </span>
               </>
             )}
-            {status === "pending" && (
+            {rawStatus === "pending" && (
               <span style={{ color: "var(--text-muted)" }}> · eingereiht</span>
             )}
-            {status === "done" && (
+            {rawStatus === "done" && (
               <span style={{ color: "var(--success)" }}> · fertig</span>
             )}
-            {status === "failed" && (
+            {rawStatus === "completed_partial" && (
+              <span style={{ color: "var(--warning)" }}> · teilweise fertig</span>
+            )}
+            {rawStatus === "failed" && (
               <span style={{ color: "var(--danger)" }}> · Fehler</span>
             )}
+            {rawStatus === "cancelled" && (
+              <span style={{ color: "var(--text-muted)" }}> · abgebrochen</span>
+            )}
           </p>
-          {detailLine && status === "processing" && (
+          {detailLine && rawStatus === "processing" && (
             <p
               className="mt-1 text-[11px] truncate"
               style={{ color: "var(--text-secondary)" }}
@@ -120,7 +207,7 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
               {detailLine}
             </p>
           )}
-          {doc.summary && status === "done" && !expanded && (
+          {doc.summary && rawStatus === "done" && !expanded && (
             <p
               className="mt-2 text-xs line-clamp-2"
               style={{ color: "var(--text-secondary)", lineHeight: 1.5 }}
@@ -128,7 +215,7 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
               {doc.summary}
             </p>
           )}
-          {status === "failed" && doc.processing_error && (
+          {rawStatus === "failed" && doc.processing_error && (
             <p
               className="mt-1 text-xs"
               style={{ color: "var(--danger)" }}
@@ -136,30 +223,89 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
               {doc.processing_error}
             </p>
           )}
+          {rawStatus === "completed_partial" && (
+            <span
+              data-testid="embedding-failed-pill"
+              className="mt-1 inline-block text-[10px] px-1.5 py-0.5 rounded"
+              style={{
+                background: "color-mix(in srgb, var(--warning) 15%, transparent)",
+                color: "var(--warning)",
+                border: "1px solid color-mix(in srgb, var(--warning) 40%, transparent)",
+              }}
+            >
+              Embedding fehlgeschlagen — Volltext-Suche eingeschränkt
+            </span>
+          )}
+
+          {/* 4-phase chip row */}
+          <PhaseChipRow
+            status={rawStatus}
+            activeIdx={activePhaseIdx}
+          />
+
+          {/* Action buttons row */}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {canRetry && (
+              <button
+                type="button"
+                onClick={() => retry.mutate()}
+                disabled={retry.isPending}
+                data-testid="doc-retry"
+                className="text-[11px] px-2 py-0.5 rounded transition-default disabled:opacity-50 flex items-center gap-1"
+                style={{
+                  border: "1px solid var(--border)",
+                  color: "var(--text-secondary)",
+                  background: "var(--bg-elevated)",
+                }}
+              >
+                <RefreshCw size={11} />
+                Erneut versuchen
+              </button>
+            )}
+            {canCancel && (
+              <button
+                type="button"
+                onClick={() => cancel.mutate()}
+                disabled={cancel.isPending}
+                data-testid="doc-cancel"
+                className="text-[11px] px-2 py-0.5 rounded transition-default disabled:opacity-50 flex items-center gap-1"
+                style={{
+                  border: "1px solid var(--border)",
+                  color: "var(--text-secondary)",
+                  background: "var(--bg-elevated)",
+                }}
+              >
+                <Ban size={11} />
+                Abbrechen
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setDetailsOpen((v) => !v)}
+              aria-expanded={detailsOpen}
+              data-testid="doc-details-toggle"
+              className="text-[11px] px-2 py-0.5 rounded transition-default flex items-center gap-1"
+              style={{
+                border: "1px solid var(--border)",
+                color: "var(--text-muted)",
+                background: "transparent",
+              }}
+            >
+              <ChevronDown
+                size={11}
+                style={{
+                  transform: detailsOpen ? "rotate(180deg)" : "none",
+                  transition: "transform 180ms ease",
+                }}
+              />
+              Details
+            </button>
+          </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
-          {(status === "failed" || status === "done") && (
-            <button
-              onClick={() => retry.mutate()}
-              disabled={retry.isPending}
-              aria-label="Erneut verarbeiten"
-              className="p-1.5 rounded hover:bg-[var(--bg-elevated)] transition-default disabled:opacity-50"
-              style={{ color: "var(--text-muted)" }}
-            >
-              <RefreshCw size={13} />
-            </button>
-          )}
-          <button
-            onClick={() => onDelete(doc)}
-            aria-label="Dokument löschen"
-            className="p-1.5 rounded hover:bg-[var(--bg-elevated)] transition-default"
-            style={{ color: "var(--text-muted)" }}
-          >
-            <Trash2 size={13} />
-          </button>
           <button
             onClick={() => setExpanded((v) => !v)}
-            aria-label={expanded ? "Einklappen" : "Details"}
+            aria-label={expanded ? "Zusammenfassung einklappen" : "Zusammenfassung"}
             className="p-1.5 rounded hover:bg-[var(--bg-elevated)] transition-default"
             style={{ color: "var(--text-muted)" }}
           >
@@ -171,6 +317,88 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
               }}
             />
           </button>
+          {/* Kebab menu — top-right corner, separate from error/retry area */}
+          <div className="relative" ref={menuRef}>
+            <button
+              type="button"
+              aria-label="Weitere Aktionen"
+              data-testid="doc-kebab"
+              onClick={() => setMenuOpen((v) => !v)}
+              className="p-1.5 rounded hover:bg-[var(--bg-elevated)] transition-default"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <MoreVertical size={13} />
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute right-0 top-full mt-1 z-20 rounded-lg shadow-lg py-1 min-w-[140px]"
+                style={{ background: "var(--bg-panel)", border: "1px solid var(--border)" }}
+                onMouseLeave={() => setMenuOpen(false)}
+              >
+                {doc.archived_at ? (
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-1.5 text-[12px] hover:bg-[var(--bg-elevated)] transition-default"
+                    style={{ color: "var(--text-secondary)" }}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      if (onRestore) onRestore(doc);
+                    }}
+                  >
+                    Wiederherstellen
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-[12px] hover:bg-[var(--bg-elevated)] transition-default"
+                      style={{ color: "var(--text-secondary)" }}
+                      disabled={replacing}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        replaceInputRef.current?.click();
+                      }}
+                    >
+                      {replacing ? "Wird ersetzt…" : "Ersetzen…"}
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-[12px] hover:bg-[var(--bg-elevated)] transition-default"
+                      style={{ color: "var(--danger)" }}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        onDelete(doc);
+                      }}
+                    >
+                      Löschen…
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+          {/* Hidden file input for replace flow */}
+          <input
+            ref={replaceInputRef}
+            type="file"
+            className="sr-only"
+            aria-hidden="true"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              e.target.value = "";
+              setReplacing(true);
+              try {
+                const diff = await replaceDocumentDryRun(projectId, doc.id, file);
+                setPendingReplaceFile(file);
+                setDiffPreview(diff);
+              } catch {
+                toast.error("Vorschau fehlgeschlagen");
+              } finally {
+                setReplacing(false);
+              }
+            }}
+          />
         </div>
       </header>
 
@@ -195,7 +423,7 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
           style={{ borderColor: "var(--border)" }}
         >
           {doc.summary && (
-            <div className="mb-3">
+            <div>
               <h4
                 className="text-[10px] font-semibold uppercase tracking-widest mb-1"
                 style={{ color: "var(--text-muted)" }}
@@ -210,13 +438,26 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
               </p>
             </div>
           )}
+        </section>
+      )}
+
+      {/* Live extraction feed */}
+      {(liveExpanded || rawStatus === "failed") && liveItems && liveItems.length > 0 && (
+        <LiveFeed items={liveItems} documentId={doc.id} />
+      )}
+
+      {detailsOpen && (
+        <section
+          className="px-4 pb-3 pt-2 border-t"
+          style={{ borderColor: "var(--border)" }}
+        >
           <h4
             className="text-[10px] font-semibold uppercase tracking-widest mb-1.5"
             style={{ color: "var(--text-muted)" }}
           >
             Pipeline
           </h4>
-          <ol className="space-y-1">
+          <ol className="space-y-1" data-testid="doc-pipeline-log">
             {logs.map((log, idx) => (
               <li
                 key={`${log.timestamp}-${idx}`}
@@ -263,5 +504,183 @@ export function DocumentCard({ doc, projectId, onDelete }: DocumentCardProps) {
         </section>
       )}
     </article>
+      {diffPreview && pendingReplaceFile && (
+        <DiffPreviewModal
+          diff={diffPreview}
+          onCancel={() => {
+            setDiffPreview(null);
+            setPendingReplaceFile(null);
+          }}
+          onConfirm={async () => {
+            const file = pendingReplaceFile;
+            setDiffPreview(null);
+            setPendingReplaceFile(null);
+            setReplacing(true);
+            try {
+              await replaceDocument(projectId, doc.id, file);
+              qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
+              qc.invalidateQueries({ queryKey: ["projects", projectId, "state"] });
+              toast.success("Dokument ersetzt");
+            } catch {
+              toast.error("Ersetzen fehlgeschlagen");
+            } finally {
+              setReplacing(false);
+            }
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function PhaseChipRow({
+  status,
+  activeIdx,
+}: {
+  status: WideStatus;
+  activeIdx: number;
+}) {
+  return (
+    <div
+      className="mt-2 flex items-center gap-1"
+      role="list"
+      data-testid="doc-phase-row"
+    >
+      {PHASE_ORDER.map((p: PipelinePhase, idx) => {
+        const isDone =
+          status === "done" ||
+          idx < activeIdx ||
+          (status === "processing" && idx < activeIdx);
+        const isActiveChip =
+          (status === "processing" || status === "pending") && idx === activeIdx;
+        const isFailed = status === "failed" && idx === activeIdx;
+        let color = "var(--text-muted)";
+        let bg = "transparent";
+        let border = "var(--border)";
+        if (isFailed) {
+          color = "var(--danger)";
+          border = "color-mix(in srgb, var(--danger) 50%, var(--border))";
+        } else if (isActiveChip) {
+          color = "var(--accent)";
+          bg = "var(--accent-subtle)";
+          border = "var(--accent)";
+        } else if (isDone) {
+          color = "var(--text-secondary)";
+        }
+        return (
+          <span
+            key={p}
+            role="listitem"
+            data-phase={p}
+            data-active={isActiveChip}
+            data-done={isDone}
+            className="text-[10px] px-1.5 py-0.5 rounded"
+            style={{
+              border: `1px solid ${border}`,
+              color,
+              background: bg,
+              opacity: !isActiveChip && !isDone && status !== "failed" ? 0.55 : 1,
+            }}
+          >
+            {PIPELINE_PHASE_LABELS[p]}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+const ITEM_ICONS: Record<ExtractedItemType, typeof User> = {
+  contact: User,
+  task: CheckSquare,
+  deadline: Calendar,
+  decision: Scale,
+  blocker: AlertOctagon,
+  dynamic_item: LayoutList,
+};
+
+function confidenceDotColor(c: ExtractedItem["confidence"]): string | null {
+  if (c === "medium") return "var(--warning)";
+  if (c === "low") return "#FB923C"; // orange
+  return null;
+}
+
+function truncateMid(text: string, max = 56): string {
+  if (text.length <= max) return text;
+  const half = Math.floor((max - 1) / 2);
+  return `${text.slice(0, half)}…${text.slice(text.length - half)}`;
+}
+
+function handleLiveItemClick(item: ExtractedItem) {
+  if (typeof document === "undefined") return;
+  const el = document.getElementById(`${item.type}-${item.itemId}`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 500);
+}
+
+function LiveFeed({
+  items,
+  documentId,
+}: {
+  items: ExtractedItem[];
+  documentId: string;
+}) {
+  const shortDocId = documentId.slice(0, 8);
+  return (
+    <section
+      className="px-4 pb-3 pt-2 border-t"
+      data-testid="live-feed"
+      style={{ borderColor: "var(--border)" }}
+    >
+      <h4
+        className="text-[10px] font-semibold uppercase tracking-widest mb-1.5"
+        style={{ color: "var(--text-muted)" }}
+      >
+        Live extrahiert
+      </h4>
+      <ul className="flex flex-col gap-1">
+        {items.map((item, idx) => {
+          const Icon = ITEM_ICONS[item.type] ?? LayoutList;
+          const dotColor = confidenceDotColor(item.confidence);
+          const tooltip = `Quelle: ${shortDocId} · Confidence: ${item.confidence}`;
+          return (
+            <li
+              key={`${item.itemId}-${idx}`}
+              data-testid="live-item"
+              data-item-type={item.type}
+              data-item-id={item.itemId}
+              data-confidence={item.confidence}
+              className="upload-fade-up"
+            >
+              <button
+                type="button"
+                onClick={() => handleLiveItemClick(item)}
+                title={tooltip}
+                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-[11px] transition-default hover:bg-[var(--bg-elevated)]"
+                style={{
+                  border: "1px solid var(--border)",
+                  background: "var(--bg-base)",
+                  color: "var(--text-secondary)",
+                }}
+              >
+                <Icon size={12} style={{ color: "var(--accent)" }} />
+                <span className="flex-1 truncate" title={item.title}>
+                  {truncateMid(item.title)}
+                </span>
+                {dotColor && (
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full shrink-0"
+                    style={{ background: dotColor }}
+                    aria-label={`Confidence: ${item.confidence}`}
+                  />
+                )}
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

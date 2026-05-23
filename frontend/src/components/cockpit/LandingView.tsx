@@ -108,6 +108,7 @@ export function LandingView({
           models={models}
           selectedModel={selectedModel}
           onModelChange={onModelChange}
+          projectId={projectId}
         />
       </section>
 

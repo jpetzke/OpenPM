@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 import structlog
@@ -5,15 +6,17 @@ from fastapi import APIRouter, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
-from sqlalchemy import select
+from redis.asyncio import Redis
+from sqlalchemy import select, text
 
 from app.auth import hash_password
 from app.config import settings
-from app.database import async_session_factory
+from app.database import async_session_factory, engine
 from app.models.user import User
 from app.routers import app_settings, auth, change_sessions, chat, documents, events, projects, state
 from app.services.llm_crypto import validate_encryption_key
 from app.services.provider_resolver import NoActiveProviderError
+from app.services.qdrant_service import _qdrant
 
 structlog.configure(
     processors=[
@@ -118,38 +121,53 @@ for _route in auth.router.routes:
 app.include_router(legacy_auth)
 
 
-@app.get("/health")
-async def health():
-    from redis.asyncio import Redis
-    from sqlalchemy import text
-    from app.database import engine
+@app.get("/api/health/live")
+async def health_live():
+    return {"status": "ok"}
 
-    results = {}
 
-    try:
+@app.get("/api/health/ready")
+async def health_ready():
+    async def _check_db():
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
-        results["db"] = "ok"
-    except Exception as e:
-        results["db"] = f"error: {e}"
+        return "ok"
 
-    try:
-        redis = Redis.from_url(settings.redis_url)
-        await redis.ping()
-        await redis.aclose()
-        results["redis"] = "ok"
-    except Exception as e:
-        results["redis"] = f"error: {e}"
+    async def _check_redis():
+        r = Redis.from_url(settings.redis_url)
+        try:
+            await r.ping()
+        finally:
+            await r.aclose()
+        return "ok"
 
-    try:
-        from app.services.qdrant_service import _qdrant
+    async def _check_qdrant():
         client = _qdrant()
         await client.get_collections()
-        results["qdrant"] = "ok"
-    except Exception as e:
-        results["qdrant"] = f"error: {e}"
+        return "ok"
 
-    return results
+    db_r, redis_r, qdrant_r = await asyncio.gather(
+        _check_db(), _check_redis(), _check_qdrant(), return_exceptions=True
+    )
+
+    def _fmt(r) -> str:
+        return "ok" if r == "ok" else f"error: {r}"
+
+    results = {
+        "db": _fmt(db_r),
+        "redis": _fmt(redis_r),
+        "qdrant": _fmt(qdrant_r),
+    }
+    any_error = any(v != "ok" for v in results.values())
+    results["status"] = "degraded" if any_error else "ready"
+
+    status_code = 503 if any_error else 200
+    return JSONResponse(content=results, status_code=status_code)
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 
 @app.get("/api/info")

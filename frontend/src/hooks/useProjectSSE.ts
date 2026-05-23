@@ -5,7 +5,10 @@ import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import {
   type ChangeSessionInfo,
+  type ExtractedItem,
+  type ExtractedItemType,
   type ExtractedSummary,
+  type LastStateChange,
   usePipelineStore,
 } from "@/store/pipelineStore";
 import { labelForPipelineStep } from "@/lib/pipeline-phases";
@@ -30,6 +33,11 @@ export function useProjectSSE(projectId: string) {
   const setActiveSession = usePipelineStore((s) => s.setActiveSession);
   const setSessionClosed = usePipelineStore((s) => s.setSessionClosed);
   const setConnectionState = usePipelineStore((s) => s.setConnectionState);
+  const addLiveItem = usePipelineStore((s) => s.addLiveItem);
+  const setLastStateChange = usePipelineStore((s) => s.setLastStateChange);
+  const isConnected = usePipelineStore(
+    (s) => s.connectionState[projectId] === "open",
+  );
 
   const cancelledRef = useRef(false);
   const ctrlRef = useRef<AbortController | null>(null);
@@ -278,6 +286,13 @@ export function useProjectSSE(projectId: string) {
           qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
           return;
 
+        case "document_archived":
+          if (!documentId) return;
+          clearPipeline(documentId);
+          qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
+          qc.invalidateQueries({ queryKey: ["projects", projectId, "state"] });
+          return;
+
         case "change_session_opened": {
           const id = (data.session_id as string) ?? sessionId;
           if (!id) return;
@@ -300,6 +315,28 @@ export function useProjectSSE(projectId: string) {
             kind: "session",
             changeSessionId: id,
           });
+          return;
+        }
+
+        case "extracted_item": {
+          if (!documentId) return;
+          const itemType = data.type as ExtractedItemType | undefined;
+          const itemId = (data.item_id as string | undefined) ?? null;
+          const title = (data.title as string | undefined) ?? "";
+          if (!itemType || !itemId) return;
+          const action = (data.action as "added" | "updated" | undefined) ?? "added";
+          const confidence =
+            (data.confidence as "high" | "medium" | "low" | undefined) ?? "high";
+          const item: ExtractedItem = {
+            documentId,
+            type: itemType,
+            itemId,
+            title,
+            action,
+            confidence,
+            emittedAt: Date.now(),
+          };
+          addLiveItem(item);
           return;
         }
 
@@ -328,6 +365,15 @@ export function useProjectSSE(projectId: string) {
             changeSessionId: id,
           });
           qc.invalidateQueries({ queryKey: ["projects", projectId, "change-session"] });
+          return;
+        }
+
+        case "state_changed": {
+          const version = (data.version as number | undefined) ?? 0;
+          const sections = (data.sections as string[] | undefined) ?? [];
+          const payload: LastStateChange = { version, sections, ts: Date.now() };
+          setLastStateChange(projectId, payload);
+          qc.invalidateQueries({ queryKey: ["projects", projectId, "state"] });
           return;
         }
 
@@ -379,5 +425,9 @@ export function useProjectSSE(projectId: string) {
     setActiveSession,
     setSessionClosed,
     setConnectionState,
+    addLiveItem,
+    setLastStateChange,
   ]);
+
+  return { isConnected };
 }

@@ -10,6 +10,46 @@ export interface UploadHandle<T> {
 export interface UploadOptions {
   onProgress?: UploadProgress;
   fieldName?: string;
+  /** When true, append `?allow_duplicate=true` to bypass 409 duplicate guard. */
+  allowDuplicate?: boolean;
+}
+
+/**
+ * Typed upload errors. Callers should check `err.kind` first; if absent, the
+ * payload follows the legacy `{status, detail}` shape used elsewhere.
+ */
+export interface DuplicateUploadError {
+  kind: "duplicate";
+  existingDocumentId: string;
+  existingFilename: string;
+  status: 409;
+  detail: unknown;
+}
+
+export interface UnsupportedUploadError {
+  kind: "unsupported";
+  allowed: string[];
+  hint?: string;
+  status: 415;
+  detail: unknown;
+}
+
+export type TypedUploadError = DuplicateUploadError | UnsupportedUploadError;
+
+export function isDuplicateError(e: unknown): e is DuplicateUploadError {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    (e as { kind?: string }).kind === "duplicate"
+  );
+}
+
+export function isUnsupportedError(e: unknown): e is UnsupportedUploadError {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    (e as { kind?: string }).kind === "unsupported"
+  );
 }
 
 /**
@@ -26,8 +66,12 @@ export function uploadFile<T = unknown>(
   const formData = new FormData();
   formData.append(options.fieldName ?? "file", file, file.name);
 
+  const finalUrl = options.allowDuplicate
+    ? url + (url.includes("?") ? "&" : "?") + "allow_duplicate=true"
+    : url;
+
   const promise = new Promise<T>((resolve, reject) => {
-    xhr.open("POST", url, true);
+    xhr.open("POST", finalUrl, true);
     const token = useAuthStore.getState().token;
     if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
@@ -44,19 +88,61 @@ export function uploadFile<T = unknown>(
         } catch (err) {
           reject(err);
         }
-      } else {
-        let detail: unknown = xhr.responseText;
-        try {
-          detail = JSON.parse(xhr.responseText);
-        } catch {
-          // leave as-is
-        }
-        const detailObj =
-          typeof detail === "object" && detail !== null
-            ? (detail as { detail?: unknown }).detail ?? detail
-            : detail;
-        reject({ status: xhr.status, detail: detailObj });
+        return;
       }
+      // Parse error body once.
+      let parsed: unknown = xhr.responseText;
+      try {
+        parsed = JSON.parse(xhr.responseText);
+      } catch {
+        // leave as-is
+      }
+      const detailObj =
+        typeof parsed === "object" && parsed !== null
+          ? (parsed as { detail?: unknown }).detail ?? parsed
+          : parsed;
+
+      // 409 duplicate
+      if (xhr.status === 409) {
+        const d = (detailObj ?? {}) as {
+          code?: string;
+          existing_document_id?: string;
+          existing_filename?: string;
+          filename?: string;
+        };
+        if (d?.code === "duplicate") {
+          const dupErr: DuplicateUploadError = {
+            kind: "duplicate",
+            existingDocumentId: d.existing_document_id ?? "",
+            existingFilename:
+              d.existing_filename ?? d.filename ?? file.name,
+            status: 409,
+            detail: detailObj,
+          };
+          reject(dupErr);
+          return;
+        }
+      }
+      // 415 unsupported media type
+      if (xhr.status === 415) {
+        const d = (detailObj ?? {}) as {
+          code?: string;
+          allowed?: string[];
+          hint?: string;
+        };
+        if (d?.code === "unsupported_media_type") {
+          const unsupErr: UnsupportedUploadError = {
+            kind: "unsupported",
+            allowed: Array.isArray(d.allowed) ? d.allowed : [],
+            hint: d.hint,
+            status: 415,
+            detail: detailObj,
+          };
+          reject(unsupErr);
+          return;
+        }
+      }
+      reject({ status: xhr.status, detail: detailObj });
     });
     xhr.addEventListener("error", () => reject({ status: 0, detail: "network_error" }));
     xhr.addEventListener("abort", () => reject({ status: 0, detail: "aborted" }));

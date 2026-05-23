@@ -48,6 +48,32 @@ export interface LastExtraction {
   at: string;
 }
 
+export type ExtractedItemType =
+  | "task"
+  | "contact"
+  | "deadline"
+  | "decision"
+  | "blocker"
+  | "dynamic_item";
+
+export interface ExtractedItem {
+  documentId: string;
+  type: ExtractedItemType;
+  itemId: string;
+  title: string;
+  action: "added" | "updated";
+  confidence: "high" | "medium" | "low";
+  emittedAt: number;
+}
+
+const LIVE_ITEMS_PER_DOC_LIMIT = 40;
+
+export interface LastStateChange {
+  version: number;
+  sections: string[];
+  ts: number;
+}
+
 interface PipelineState {
   pipelines: Record<string, DocumentStatus>;
   details: Record<
@@ -69,6 +95,10 @@ interface PipelineState {
   perProjectActiveSession: Record<string, ChangeSessionInfo | null>;
   perProjectLastClosed: Record<string, ChangeSessionInfo | null>;
   connectionState: Record<string, ConnectionState>;
+  liveItemsByDoc: Record<string, ExtractedItem[]>;
+  lastItemAtByDoc: Record<string, number>;
+  expandedDocs: Set<string>;
+  perProjectLastStateChange: Record<string, LastStateChange | null>;
 
   setPipelineStatus: (documentId: string, status: DocumentStatus, projectId?: string) => void;
   pushPipelineEvent: (
@@ -91,6 +121,9 @@ interface PipelineState {
   setActiveSession: (projectId: string, session: ChangeSessionInfo | null) => void;
   setSessionClosed: (projectId: string, session: ChangeSessionInfo) => void;
   setConnectionState: (projectId: string, state: ConnectionState) => void;
+  addLiveItem: (item: ExtractedItem) => void;
+  setLastStateChange: (projectId: string, payload: LastStateChange) => void;
+  collapseDoc: (docId: string) => void;
   hydrateProjectFromDocuments: (
     projectId: string,
     docs: Array<{
@@ -115,6 +148,10 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
   perProjectActiveSession: {},
   perProjectLastClosed: {},
   connectionState: {},
+  liveItemsByDoc: {},
+  lastItemAtByDoc: {},
+  expandedDocs: new Set<string>(),
+  perProjectLastStateChange: {},
 
   setPipelineStatus: (documentId, status, projectId) =>
     set((s) => ({
@@ -186,11 +223,20 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
       const { [documentId]: ___, ...projRest } = s.docProject;
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { [documentId]: ____, ...nameRest } = s.docNames;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [documentId]: _____, ...liveRest } = s.liveItemsByDoc;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { [documentId]: ______, ...lastAtRest } = s.lastItemAtByDoc;
+      const nextExpanded = new Set(s.expandedDocs);
+      nextExpanded.delete(documentId);
       return {
         pipelines: rest,
         details: detailRest,
         docProject: projRest,
         docNames: nameRest,
+        liveItemsByDoc: liveRest,
+        lastItemAtByDoc: lastAtRest,
+        expandedDocs: nextExpanded,
       };
     }),
 
@@ -215,6 +261,32 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
 
   setConnectionState: (projectId, state) =>
     set((s) => ({ connectionState: { ...s.connectionState, [projectId]: state } })),
+
+  addLiveItem: (item) =>
+    set((s) => {
+      const current = s.liveItemsByDoc[item.documentId] ?? [];
+      const next = [...current, item].slice(-LIVE_ITEMS_PER_DOC_LIMIT);
+      const nextExpanded = new Set(s.expandedDocs);
+      nextExpanded.add(item.documentId);
+      return {
+        liveItemsByDoc: { ...s.liveItemsByDoc, [item.documentId]: next },
+        lastItemAtByDoc: { ...s.lastItemAtByDoc, [item.documentId]: Date.now() },
+        expandedDocs: nextExpanded,
+      };
+    }),
+
+  setLastStateChange: (projectId, payload) =>
+    set((s) => ({
+      perProjectLastStateChange: { ...s.perProjectLastStateChange, [projectId]: payload },
+    })),
+
+  collapseDoc: (docId) =>
+    set((s) => {
+      if (!s.expandedDocs.has(docId)) return {};
+      const nextExpanded = new Set(s.expandedDocs);
+      nextExpanded.delete(docId);
+      return { expandedDocs: nextExpanded };
+    }),
 
   hydrateProjectFromDocuments: (projectId, docs) =>
     set((s) => {

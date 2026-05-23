@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { UploadCloud } from "lucide-react";
 import { api } from "@/lib/api";
 import { useChatStream } from "@/hooks/useChatStream";
+import { startUploadWithFlow } from "@/lib/uploadFlow";
 import { LandingView } from "./LandingView";
 import { ConversationView } from "./ConversationView";
 import { StickyChatInput } from "./StickyChatInput";
@@ -39,6 +41,10 @@ export function CockpitLayout({ projectId }: Props) {
   const [optimisticMessages, setOptimisticMessages] = useState<ChatMessage[]>([]);
   // Local view state: when null && messages empty → landing, otherwise conversation.
   const [viewMode, setViewMode] = useState<"landing" | "conversation">("landing");
+
+  // Page-wide drag-and-drop state.
+  const dragDepthRef = useRef(0);
+  const [pageDragging, setPageDragging] = useState(false);
 
   const { data: models, error: modelsError } = useQuery<ModelInfo[]>({
     queryKey: ["settings", "models"],
@@ -166,6 +172,62 @@ export function CockpitLayout({ projectId }: Props) {
     [handleSend],
   );
 
+  // -------------------------------------------------------------------------
+  // Page-wide drag-and-drop overlay. Uses the enter-counter pattern from
+  // DropZone — dragenter/leave fire on every child node, so a boolean alone
+  // flickers. We only update visible state when transitioning 0 ↔ 1+.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) =>
+      !!e.dataTransfer?.types?.includes("Files");
+
+    const onEnter = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current += 1;
+      if (dragDepthRef.current === 1) setPageDragging(true);
+    };
+    const onOver = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+    };
+    const onLeave = (e: DragEvent) => {
+      // dragleave fires on every child boundary. The counter handles that.
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+      if (dragDepthRef.current === 0) setPageDragging(false);
+    };
+    const onDrop = (e: DragEvent) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragDepthRef.current = 0;
+      setPageDragging(false);
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+
+      // Route drop based on target. Files dropped onto the chat input area go
+      // through the same upload path; the attachment-card UI is future scope.
+      const target = e.target as HTMLElement | null;
+      const onChatInput = !!target?.closest?.("[data-chat-input]");
+      Array.from(files).forEach((file) => {
+        void onChatInput; // route is identical for now (single upload route).
+        startUploadWithFlow(file, { projectId, qc });
+      });
+    };
+
+    window.addEventListener("dragenter", onEnter);
+    window.addEventListener("dragover", onOver);
+    window.addEventListener("dragleave", onLeave);
+    window.addEventListener("drop", onDrop);
+    return () => {
+      window.removeEventListener("dragenter", onEnter);
+      window.removeEventListener("dragover", onOver);
+      window.removeEventListener("dragleave", onLeave);
+      window.removeEventListener("drop", onDrop);
+    };
+  }, [projectId, qc]);
+
   const streamApi = useMemo(
     () => ({
       streaming,
@@ -195,7 +257,7 @@ export function CockpitLayout({ projectId }: Props) {
 
   return (
     <div
-      className="grid h-full min-h-0"
+      className="grid h-full min-h-0 relative"
       style={{
         background: "var(--bg-base)",
         gridTemplateColumns: "1fr 340px",
@@ -242,6 +304,7 @@ export function CockpitLayout({ projectId }: Props) {
               models={models}
               selectedModel={selectedModel}
               onModelChange={setSelectedModel}
+              projectId={projectId}
             />
           </div>
         )}
@@ -259,6 +322,34 @@ export function CockpitLayout({ projectId }: Props) {
         <DocumentsPanel projectId={projectId} />
         <BriefingPanel projectId={projectId} />
       </aside>
+
+      {/* PAGE-WIDE DROP OVERLAY — pointer-events:none so drop reaches target. */}
+      {pageDragging && (
+        <div
+          data-testid="page-drop-overlay"
+          aria-hidden="true"
+          className="fixed inset-0 z-50 pointer-events-none flex items-center justify-center"
+          style={{
+            background: "color-mix(in srgb, var(--accent-subtle) 88%, transparent)",
+          }}
+        >
+          <div
+            className="rounded-[var(--radius)] px-10 py-8 flex flex-col items-center gap-3 border-2 border-dashed"
+            style={{
+              borderColor: "var(--accent)",
+              background: "color-mix(in srgb, var(--bg-surface) 92%, transparent)",
+            }}
+          >
+            <UploadCloud size={36} style={{ color: "var(--accent)" }} />
+            <p
+              className="text-sm font-medium"
+              style={{ color: "var(--accent)" }}
+            >
+              Datei hier ablegen
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

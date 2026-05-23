@@ -12,6 +12,7 @@ interface Props {
   selectedModel?: string;
   onModelChange?: (model: string) => void;
   onFocus?: () => void;
+  projectId?: string;
 }
 
 export function StickyChatInput(props: Props) {

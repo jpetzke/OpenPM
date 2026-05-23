@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     kreuzberg_ocr_language: str = "deu+eng"
 
     environment: Literal["dev", "staging", "production"] = "dev"
+    debug_tracebacks: bool = False
 
 
 settings = Settings()

@@ -22,7 +22,13 @@ class DocumentResponse(BaseModel):
     pipeline_updated_at: datetime | None
     processing_status: str
     processing_error: str | None
+    error_class: str | None = None
     git_commit_hash: str | None
+    arq_job_id: str | None = None
+    content_hash: str | None = None
+    retry_count: int = 0
+    archived_at: datetime | None = None
+    replaces_document_id: uuid.UUID | str | None = None
     uploaded_by: uuid.UUID
     uploaded_at: datetime
 
@@ -35,3 +41,23 @@ class TextDocumentCreate(BaseModel):
 class DocumentUploadResponse(BaseModel):
     document: DocumentResponse
     change_session_id: uuid.UUID | None = None
+
+
+class ArchiveSummary(BaseModel):
+    document_id: str
+    removed_count: int
+    orphaned_count: int
+    retained_count: int
+    version: int
+    strategy: str = "soft"
+
+
+class DiffItem(BaseModel):
+    type: str
+    title: str
+
+
+class DiffPreview(BaseModel):
+    additions: list[DiffItem] = []
+    removals: list[DiffItem] = []
+    modifications: list[DiffItem] = []

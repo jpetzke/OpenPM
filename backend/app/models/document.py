@@ -11,8 +11,16 @@ from app.database import Base
 class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (
+        # Valid processing_status values:
+        #   pending           — queued, not yet started
+        #   processing        — pipeline running
+        #   done              — fully completed
+        #   failed            — pipeline terminated with error
+        #   cancelled         — user-cancelled mid-run
+        #   completed_partial — pipeline finished but embedding step failed;
+        #                       state IS merged, full-text search is limited
         CheckConstraint(
-            "processing_status IN ('pending', 'processing', 'done', 'failed')",
+            "processing_status IN ('pending', 'processing', 'done', 'failed', 'cancelled', 'completed_partial')",
             name="documents_processing_status_check",
         ),
         Index("documents_project_idx", "project_id"),
@@ -35,6 +43,14 @@ class Document(Base):
     pipeline_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     processing_status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
     git_commit_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    arq_job_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    replaces_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
     uploaded_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

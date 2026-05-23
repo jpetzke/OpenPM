@@ -1,13 +1,16 @@
 "use client";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, WifiOff } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import {
   usePipelineStore,
   getProjectPipelineSummary,
 } from "@/store/pipelineStore";
 import { labelForPipelineStep } from "@/lib/pipeline-phases";
+
+const DISCONNECT_GRACE_MS = 3000;
 
 const BAR_HEIGHT = 44;
 const FAILURE_VISIBILITY_MS = 5 * 60 * 1000;
@@ -22,6 +25,17 @@ export function GlobalStatusBar({ projectId }: GlobalStatusBarProps) {
   const summary = usePipelineStore(
     useShallow((s) => getProjectPipelineSummary(s, projectId)),
   );
+  const connection = usePipelineStore((s) => s.connectionState[projectId]);
+  const [showDisconnect, setShowDisconnect] = useState(false);
+
+  useEffect(() => {
+    if (connection === "open" || connection === undefined) {
+      setShowDisconnect(false);
+      return;
+    }
+    const timer = setTimeout(() => setShowDisconnect(true), DISCONNECT_GRACE_MS);
+    return () => clearTimeout(timer);
+  }, [connection]);
 
   const failureFresh =
     summary.latestStatus === "failed" &&
@@ -39,6 +53,33 @@ export function GlobalStatusBar({ projectId }: GlobalStatusBarProps) {
 
   return (
     <div className="shrink-0" style={{ minHeight: 0 }}>
+      <AnimatePresence initial={false}>
+        {showDisconnect && (
+          <motion.div
+            key="disconnect-banner"
+            initial={{ y: -BAR_HEIGHT, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -BAR_HEIGHT, opacity: 0 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+            data-testid="sse-disconnect-banner"
+            style={{
+              background: "color-mix(in srgb, var(--accent) 10%, var(--bg-surface))",
+              borderBottom: "1px solid var(--border-accent)",
+              overflow: "hidden",
+            }}
+          >
+            <div className="flex items-center gap-3 px-4 py-2">
+              <WifiOff size={14} style={{ color: "var(--accent)" }} />
+              <span
+                className="text-xs"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                SSE getrennt — verbinde neu…
+              </span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence initial={false}>
         {mode !== "idle" && (
           <motion.div
@@ -94,7 +135,13 @@ function ProcessingRow({
           style={{ background: "var(--accent)" }}
         />
         <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-          Verarbeite <span style={{ color: "var(--text-primary)" }}>{label}</span>
+          Verarbeite{" "}
+          <span
+            className="animate-pulse-soft"
+            style={{ color: "var(--text-primary)" }}
+          >
+            {label}
+          </span>
           {processingCount > 1 && (
             <span style={{ color: "var(--text-muted)" }}>
               {" "}· {processingCount} parallel

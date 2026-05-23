@@ -251,10 +251,25 @@ body::-webkit-scrollbar-thumb {
   100% { transform: translateX(400%); }
 }
 
+@keyframes flash {
+  0%   { background-color: var(--bg-surface); }
+  40%  { background-color: color-mix(in srgb, var(--accent) 15%, var(--bg-surface)); }
+  100% { background-color: var(--bg-surface); }
+}
+.flash { animation: flash 500ms ease-in-out; }
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.animate-pulse-soft { animation: pulse-soft 1.5s ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .upload-fade-up,
   .upload-shimmer,
-  .upload-bar .progress {
+  .upload-bar .progress,
+  .flash,
+  .animate-pulse-soft {
     animation: none !important;
   }
 }

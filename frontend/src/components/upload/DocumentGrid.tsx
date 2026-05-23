@@ -2,12 +2,12 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import { api, restoreDocument } from "@/lib/api";
 import { DocumentCard } from "@/components/upload/DocumentCard";
 import { usePipelineStore } from "@/store/pipelineStore";
 import type { Document } from "@/types/document";
 
-const UNDO_MS = 5000;
+const UNDO_MS = 30_000;
 
 interface DocumentGridProps {
   projectId: string;
@@ -46,14 +46,20 @@ export function DocumentGrid({ projectId }: DocumentGridProps) {
         duration: UNDO_MS,
         action: {
           label: "Rückgängig",
-          onClick: () => {
+          onClick: async () => {
             cancelled = true;
             const t = pendingDeletes.current.get(docId);
             if (t) {
               clearTimeout(t);
               pendingDeletes.current.delete(docId);
             }
+            try {
+              await restoreDocument(projectId, docId);
+            } catch {
+              // already-deleted is fine — invalidate either way
+            }
             qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
+            qc.invalidateQueries({ queryKey: ["projects", projectId, "state"] });
           },
         },
       });

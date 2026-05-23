@@ -61,7 +61,7 @@ class ProjectState(Base):
 class StateChangelog(Base):
     __tablename__ = "state_changelog"
     __table_args__ = (
-        CheckConstraint("triggered_by IN ('pipeline', 'chat_tool', 'manual')", name="state_changelog_triggered_by_check"),
+        CheckConstraint("triggered_by IN ('pipeline', 'chat_tool', 'manual', 'document_delete', 'document_revert', 'replace')", name="state_changelog_triggered_by_check"),
         Index("state_changelog_project_idx", "project_id"),
         Index("state_changelog_created_at_idx", "project_id", "created_at"),
     )

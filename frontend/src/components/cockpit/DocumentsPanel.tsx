@@ -10,23 +10,30 @@ import {
   AlertCircle,
   Trash2,
   UploadCloud,
+  MoreVertical,
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import {
+  api,
+  restoreDocument,
+  replaceDocument,
+  replaceDocumentDryRun,
+  type DiffPreview,
+} from "@/lib/api";
 import { usePipelineStore } from "@/store/pipelineStore";
 import { DropZone } from "@/components/upload/DropZone";
-import { uploadFile } from "@/lib/upload";
+import { TextPasteModal } from "@/components/upload/TextPasteModal";
+import { DiffPreviewModal } from "@/components/upload/DiffPreviewModal";
+import { startUploadWithFlow } from "@/lib/uploadFlow";
 import { formatRelativeTime } from "@/lib/utils";
 import type { Document, DocumentStatus } from "@/types/document";
-
-const MAX_UPLOAD_SIZE = 50 * 1024 * 1024;
 
 interface Props {
   projectId: string;
 }
 
-const UNDO_MS = 5000;
+const UNDO_MS = 30_000;
 
 function StatusIcon({ status }: { status: DocumentStatus }) {
   if (status === "processing" || status === "pending") {
@@ -59,6 +66,7 @@ function StatusIcon({ status }: { status: DocumentStatus }) {
 export function DocumentsPanel({ projectId }: Props) {
   const qc = useQueryClient();
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [pasteModalOpen, setPasteModalOpen] = useState(false);
   const pendingDeletes = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
@@ -73,24 +81,14 @@ export function DocumentsPanel({ projectId }: Props) {
       const list = Array.from(files);
       if (list.length === 0) return;
       for (const file of list) {
-        if (file.size > MAX_UPLOAD_SIZE) {
-          toast.error(`${file.name}: zu groß (max. 50 MB)`);
-          continue;
-        }
-        const handle = uploadFile<unknown>(
-          `/api/projects/${projectId}/documents`,
-          file,
-        );
-        handle.promise
-          .then(() => {
-            qc.invalidateQueries({
-              queryKey: ["projects", projectId, "documents"],
-            });
+        startUploadWithFlow(file, {
+          projectId,
+          qc,
+          onOpenTextPaste: () => setPasteModalOpen(true),
+          onSuccess: () => {
             toast.success(`${file.name} hochgeladen`);
-          })
-          .catch(() => {
-            toast.error(`${file.name}: Upload fehlgeschlagen`);
-          });
+          },
+        });
       }
     },
     [projectId, qc],
@@ -158,16 +156,20 @@ export function DocumentsPanel({ projectId }: Props) {
         duration: UNDO_MS,
         action: {
           label: "Rückgängig",
-          onClick: () => {
+          onClick: async () => {
             cancelled = true;
             const t = pendingDeletes.current.get(docId);
             if (t) {
               clearTimeout(t);
               pendingDeletes.current.delete(docId);
             }
-            qc.invalidateQueries({
-              queryKey: ["projects", projectId, "documents"],
-            });
+            try {
+              await restoreDocument(projectId, docId);
+            } catch {
+              // Ignore if already deleted
+            }
+            qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
+            qc.invalidateQueries({ queryKey: ["projects", projectId, "state"] });
           },
         },
       });
@@ -290,6 +292,7 @@ export function DocumentsPanel({ projectId }: Props) {
             <DocumentRow
               key={doc.id}
               doc={doc}
+              projectId={projectId}
               onDelete={() => requestDelete(doc)}
             />
           ))}
@@ -301,24 +304,53 @@ export function DocumentsPanel({ projectId }: Props) {
           <div className="progress" />
         </div>
       )}
+
+      {pasteModalOpen && (
+        <TextPasteModal
+          projectId={projectId}
+          onClose={() => setPasteModalOpen(false)}
+        />
+      )}
     </section>
   );
 }
 
 function DocumentRow({
   doc,
+  projectId,
   onDelete,
 }: {
   doc: Document;
+  projectId: string;
   onDelete: () => void;
 }) {
+  const qc = useQueryClient();
   const livePipeline = usePipelineStore((s) => s.pipelines[doc.id]);
   const status: DocumentStatus = livePipeline ?? doc.processing_status;
   const [hover, setHover] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [diff, setDiff] = useState<DiffPreview | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [replacing, setReplacing] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    function handle(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [menuOpen]);
 
   return (
     <li
-      className="group flex items-center gap-2 px-1.5 py-1.5 rounded text-[13px] transition-default cursor-default"
+      data-testid="document-row"
+      data-status={status}
+      className="flex flex-col gap-1 px-1.5 py-1.5 rounded text-[13px] transition-default cursor-default"
       style={{
         color: "var(--text-secondary)",
         background: hover ? "var(--bg-elevated)" : "transparent",
@@ -327,33 +359,141 @@ function DocumentRow({
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <StatusIcon status={status} />
-      <span className="flex-1 truncate min-w-0">{doc.original_filename}</span>
-      {hover ? (
-        <button
-          type="button"
-          aria-label="Dokument löschen"
-          onClick={onDelete}
-          className="p-1 rounded transition-default shrink-0"
-          style={{ color: "var(--text-muted)" }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.color =
-              "var(--danger)";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLButtonElement).style.color =
-              "var(--text-muted)";
-          }}
+      <div className="flex items-center gap-2">
+        <StatusIcon status={status} />
+        <span className="flex-1 truncate min-w-0">{doc.original_filename}</span>
+        {hover || menuOpen ? (
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              type="button"
+              aria-label="Dokument löschen"
+              onClick={onDelete}
+              className="p-1 rounded transition-default"
+              style={{ color: "var(--text-muted)" }}
+              onMouseEnter={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "var(--danger)";
+              }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color = "var(--text-muted)";
+              }}
+            >
+              <Trash2 size={12} />
+            </button>
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                aria-label="Weitere Aktionen"
+                data-testid="doc-kebab"
+                onClick={() => setMenuOpen((v) => !v)}
+                className="p-1 rounded transition-default"
+                style={{ color: "var(--text-muted)" }}
+              >
+                <MoreVertical size={12} />
+              </button>
+              {menuOpen && (
+                <div
+                  className="absolute right-0 top-full mt-1 z-20 rounded-lg shadow-lg py-1 min-w-[140px]"
+                  style={{ background: "var(--bg-panel, var(--bg-surface))", border: "1px solid var(--border)" }}
+                >
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-1.5 text-[12px] transition-default hover:bg-[var(--bg-elevated)]"
+                    style={{ color: "var(--text-secondary)" }}
+                    disabled={replacing}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      fileRef.current?.click();
+                    }}
+                  >
+                    {replacing ? "Wird ersetzt…" : "Ersetzen…"}
+                  </button>
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-1.5 text-[12px] transition-default hover:bg-[var(--bg-elevated)]"
+                    style={{ color: "var(--danger)" }}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onDelete();
+                    }}
+                  >
+                    Löschen…
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <span
+            className="text-[11px] shrink-0 tabular-nums"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {formatRelativeTime(doc.uploaded_at)}
+          </span>
+        )}
+      </div>
+      {status === "failed" && doc.processing_error && (
+        <p
+          className="text-[11px] pl-5"
+          style={{ color: "var(--danger)" }}
         >
-          <Trash2 size={12} />
-        </button>
-      ) : (
+          {doc.processing_error}
+        </p>
+      )}
+      {status === "completed_partial" && (
         <span
-          className="text-[11px] shrink-0 tabular-nums"
-          style={{ color: "var(--text-muted)" }}
+          data-testid="embedding-failed-pill"
+          className="self-start text-[10px] px-1.5 py-0.5 rounded ml-5"
+          style={{
+            background: "color-mix(in srgb, var(--warning) 15%, transparent)",
+            color: "var(--warning)",
+            border: "1px solid color-mix(in srgb, var(--warning) 40%, transparent)",
+          }}
         >
-          {formatRelativeTime(doc.uploaded_at)}
+          Embedding fehlgeschlagen — Volltext-Suche eingeschränkt
         </span>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        className="sr-only"
+        onChange={async (e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          setReplacing(true);
+          try {
+            const preview = await replaceDocumentDryRun(projectId, doc.id, f);
+            setPendingFile(f);
+            setDiff(preview);
+          } catch {
+            toast.error("Vorschau fehlgeschlagen");
+          } finally {
+            setReplacing(false);
+          }
+        }}
+      />
+      {diff && pendingFile && (
+        <DiffPreviewModal
+          diff={diff}
+          onCancel={() => {
+            setDiff(null);
+            setPendingFile(null);
+          }}
+          onConfirm={async () => {
+            const file = pendingFile;
+            setDiff(null);
+            setPendingFile(null);
+            if (!file) return;
+            try {
+              await replaceDocument(projectId, doc.id, file);
+              toast.success("Dokument ersetzt");
+              qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
+              qc.invalidateQueries({ queryKey: ["projects", projectId, "state"] });
+            } catch {
+              toast.error("Ersetzen fehlgeschlagen");
+            }
+          }}
+        />
       )}
     </li>
   );

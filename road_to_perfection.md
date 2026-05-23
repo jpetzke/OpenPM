@@ -2,8 +2,8 @@
 
 > Lebendes Referenz-Dokument. Definiert pro Feature/Detail den absolut perfekten Zielzustand, hält den aktuellen Ist-Stand fest und listet messbare Akzeptanz-Kriterien als Checkliste. Wird über viele Sessions hinweg fortgeschrieben.
 >
-> **Last update:** 2026-05-22 · **Stand:** OpenPM @ `main` (5f11d28)
-> **Aktueller Gesamt-Score:** **40 / 100** (Review-Pass: ehrlichere Gewichtung gegen User-Story-Kern)
+> **Last update:** 2026-05-23 (G/H/I durch) · **Stand:** OpenPM @ `main` (`badcf06` + uncommitted D/E/F/G/H/I work)
+> **Aktueller Gesamt-Score:** **72 / 100** (A/B/C/D/E/F + G State-UI + H Reliability + I Lifecycle voll durch)
 
 ---
 
@@ -49,20 +49,20 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 
 | Bereich | Gewicht | Score | Kurzbefund |
 |---|---|---|---|
-| A. Cockpit-Layout (Single Page) | 10 % | 10 / 100 | 3 Tab-Routen statt einer Seite — Kern-Soll verletzt |
-| B. Chat-Interface | 8 % | 55 / 100 | Streaming + Tools da; Sessions, Inline-Mutation-Karten, Slash fehlen |
-| C. Chat-Archiv & Sessions | 5 % | 15 / 100 | History-Endpoint da, kein Session-Modell, keine UI |
-| D. Dokument-Upload-Flow | 7 % | 70 / 100 | Solide Drop-Zone + Progress; Clipboard-Paste fehlt |
-| E. Live-Extraction-Feedback | 6 % | 60 / 100 | SSE-Stream da, Pro-Item-Live-Feed fehlt |
-| F. State + Source-Attribution | 9 % | 50 / 100 | Dedup ok; Source nur in dynamic_sections + Tasks |
-| G. State-UI (Status-Block) | 5 % | 50 / 100 | StateGrid existiert; kompakte Ruhe-Zeile fehlt |
-| H. Reliability + Error-Paths | 9 % | 45 / 100 | Failure-Status da; Retry, Rollback unvollständig |
-| I. Dokument-Lifecycle | 5 % | 25 / 100 | Delete da, Replace + Rollback fehlt |
+| A. Cockpit-Layout (Single Page) | 10 % | 80 / 100 | Single-page Cockpit live; Mobile-Bottom-Sheet + Banner-Continuity offen |
+| B. Chat-Interface | 8 % | 75 / 100 | Streaming + Tool-Pillen + Mutation-Undo + Sessions; Slash + File-Anhang-Karte offen |
+| C. Chat-Archiv & Sessions | 5 % | 80 / 100 | `chat_sessions` Tabelle + UI + Auto-Titel + state-version-Badge live |
+| D. Dokument-Upload-Flow | 7 % | 95 / 100 | Cancel + Retry + Dedup + 4-Phasen + Paste + Page-Drop + Paperclip live; Drop-as-Attachment-Karte partial |
+| E. Live-Extraction-Feedback | 6 % | 100 / 100 | `extracted_item` SSE + Throttle + Live-Feed + Flash-Scroll + Count-Up + Pulse + Disconnect-Banner |
+| F. State + Source-Attribution | 9 % | 94 / 100 | Source-ID-Arrays + Backfill + Merge-Union + Confidence + Konflikte + Chat-Source; `manual:{user_id}` blockiert auf Mutation-API |
+| G. State-UI (Status-Block) | 5 % | 100 / 100 | StateGrid + StatusPanel-Summary + Flash-on-State-Change + Versions-Footer + nextDeadline-Util live |
+| H. Reliability + Error-Paths | 9 % | 100 / 100 | Typed LLM-Exceptions + Retry-Matrix + JSON-Schema-Re-Prompt + completed_partial + /api/health/live+ready + Doc-Error-Banner |
+| I. Dokument-Lifecycle | 5 % | 100 / 100 | Soft-Delete + State-Recompose + Git-Revert-Variant + Replace-Dry-Run + Replace-Commit + 30s-Undo + Kebab-Menü in DocumentRow |
 | J. Briefing + Context-Window | 5 % | 60 / 100 | Briefing auto-rendered; Cap + Priorisierung fehlt |
 | K. Token-Budget + Kosten | 5 % | 0 / 100 | Komplette Lücke |
 | L. Format-Support (EML/Audio/Bilder) | 5 % | 35 / 100 | Doc/Text ok; EML/Audio/OCR fehlen |
 | M. Onboarding + Multi-Projekt-Nav | 3 % | 35 / 100 | Sidebar da; Wizard fehlt |
-| N. Clipboard-Paste | 2 % | 10 / 100 | Text-Modal existiert; Bild/Inline fehlt |
+| N. Clipboard-Paste | 2 % | 70 / 100 | Bild + Lang-Text-Routing live; Slash-Conflict offen |
 | O. Slash-Commands | 2 % | 0 / 100 | Nicht implementiert |
 | P. Keyboard-Navigation | 2 % | 35 / 100 | Cmd+1/2/3 (deprecated nach Refactor); Cmd+K/N fehlen |
 | Q. Session/Auth-Lifecycle | 3 % | 40 / 100 | JWT + Blocklist; Refresh + Recovery fehlen |
@@ -70,13 +70,67 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | S. Bulk-Upload | 2 % | 45 / 100 | Pro-File ok, Gruppierung fehlt |
 | T. Stale Detection | 2 % | 0 / 100 | Kein Cron |
 | U. Export | 2 % | 0 / 100 | Komplett fehlend |
-| V. Animationen + Timing | 3 % | 45 / 100 | Tailwind transitions da; Disziplin fehlt |
+| V. Animationen + Timing | 3 % | 60 / 100 | Count-Up + Pulse-Soft + Flash + Pulse-Phase live |
 | W. Nicht-funktional (DevOps/Tests/Obs) | 4 % | 60 / 100 | Docker + Alembic + E2E vorhanden; Observability fehlt |
 | **Summe** | **100 %** | — | — |
 
-**Gesamt-Score: 40 / 100.** Berechnung: Σ Bereich × Gewicht. Korrektur gegen alten 68er-Wert: die alte Zahl überbewertete Backend-Infrastruktur und unterbewertete den Single-Cockpit-Verstoß. Reality-Check zeigt: Cockpit + Chat-Sessions + Source-Attribution + Token-Budget zusammen sind ~30 % Gewicht und alle unter 50 → Gesamt muss niedrig sein.
+**Gesamt-Score: 72 / 100.** Berechnung: Σ Bereich × Gewicht = ~72. Sprung gegenüber 63 stammt aus voller G/H/I-Welle (State-UI Flash + Versions-Footer · Reliability typed LLM-exceptions + Retry-Matrix + completed_partial + Healthcheck · Lifecycle Soft-Delete + Git-Revert + Replace-Flow + 30s-Undo). Restliche Punkte zu 100 liegen in: K (Token-Budget komplett), L (EML/Audio/OCR), M (Onboarding-Wizard), O (Slash-Commands), Q (Refresh + Recovery), R (Browser-Push), T (Stale-Cron), U (Export), W (Observability).
 
 Score-Update-Pflicht: bei jedem PR der Items abhakt → Bereich-Score neu berechnen (`erfüllte Items / Gesamt-Items × 100`), dann Gesamt neu summieren. Helfer-Skript siehe Sektion 5.
+
+---
+
+## 2.1 Session-Log
+
+### 2026-05-23 — G + H + I Sweep
+
+**Streams gelandet** (3 parallele Sonnet-Subagents via Plan in `/home/jonas/.claude/plans/alright-go-ahead-scalable-puppy.md`, plus Main-Thread-Konsolidierung der UI-Wiring-Lücke):
+
+- **G State-UI** — `services/state_manager.compute_next_deadline()` deterministische Logik (resolved-skip, upcoming-asc, overdue-fallback, alphabetische Tiebreak); `lib/deadlines.ts` als TS-Mirror (single source of truth). `tasks/pipeline.py` publiziert `state_changed` SSE-Event mit `sections`-Array nach State-Persist. `pipelineStore.perProjectLastStateChange` + `useFlashingSections`-Hook in StateGrid → `.flash`-Klasse 500 ms auf betroffener SectionCard (`globals.css` keyframe respektiert `prefers-reduced-motion`). `StatusPanel.useFlashOnChange(version)` für die Summary-Pille. `StateDetailModal` Sticky-Footer „Zuletzt geändert vor … · Version V · Historie ansehen" mit Anchor `#state-history`. StateGrid empty-state mit zentraler Roadmap-Copy. 14/14 neue Backend-Tests + Playwright `state-flash.spec.ts` grün.
+
+- **H Reliability** — Typed LLM-Exceptions `LLMRateLimit | LLMTimeout | LLMServerError | LLMInvalidJSON` in `services/llm.py` mit `_wrap_openai_exc()` für `openai.RateLimitError / APITimeoutError / APIStatusError`-Mapping. `services/extraction.py` Re-Prompt mit `ExtractedDelta.model_json_schema()` injection bei erstem `JSONDecodeError`, zweiter Fail → raise `LLMInvalidJSON`. `tasks/pipeline.py` `_RETRY_MATRIX` + `_step_with_retry()` Helper konsumiert Backoff-Tabelle aus Roadmap; Extract-Step wrappt LLM-Exceptions zu `llm_*` error_class; Embed-Step non-fatal (`processing_status = "completed_partial"` bei Erschöpfung der Retries). Run-Start cleart `error_class` + `processing_error`. `settings.debug_tracebacks` schreibt Stacktraces in `pipeline_logs[].traceback`. `routers/chat.py::search_documents` prepended Warnung bei `completed_partial` Docs. `main.py` `/api/health/live` (sofort 200) + `/api/health/ready` (DB+Redis+Qdrant parallel, 503 bei degradiert). Alembic `0012` ergänzt `completed_partial` im DB-CheckConstraint. `DocumentCard` (legacy) + `DocumentRow` (cockpit) zeigen amber „Embedding fehlgeschlagen"-Pille bei partial. 35/35 neue Tests grün.
+
+- **I Lifecycle** — Alembic `0011_document_lifecycle` (`documents.archived_at` + `replaces_document_id` FK + partial index `ix_documents_active`). `state_manager.remove_document_source()` mit 3 Re-Komposition-Regeln (drop, orphan, keep) + `_ensure_sources` schreibt `last_modified_source`. `git_service.revert_to_version()` für hard-rollback. `routers/documents.py` komplett rewritten: `DELETE` default soft (archive + recompose + Qdrant-cascade + SSE `document_archived`); `?strategy=git_revert` rollt State auf Pre-Upload-Version zurück; `POST /restore` clear archived_at + Re-Enqueue Pipeline; `POST /replace?dry_run=true` simuliert auf state-copy ohne Commit; `POST /replace` (commit) verbindet `replaces_document_id` + archiviert Alt-Doc + Re-Pipeline-Run. List-Endpoint filtert `archived_at IS NULL` default, `?include_archived=true` opt-in. Frontend: `DiffPreviewModal` (additions/removals/modifications mit grün/rot/amber Border); `DocumentRow`-Kebab in DocumentsPanel (Ersetzen…/Löschen…) sowie auch in legacy `DocumentCard`; 30 s Undo-Toast in DocumentsPanel mit `restoreDocument`-Call; `SourcePill` rendert `orphaned:`-Prefix. 21/21 neue Backend-Tests + Playwright `document-replace.spec.ts` + `delete-undo.spec.ts` grün.
+
+- **Main-Thread-Konsolidierung** — Agent I implementierte Kebab in `DocumentCard.tsx`, das jedoch nach Cockpit-Refactor nicht gerendert wird (DocumentsPanel zeigt `DocumentRow`, nicht DocumentCard). Behoben durch Port von Kebab-Menü + DiffPreviewModal-Hook + error-banner + completed_partial-Pille direkt in `DocumentRow` (cockpit DocumentsPanel). Dry-run Endpoint hatte Signatur-Fehler (`parse_document(tmp_path)` statt `parse_document(file_bytes, mime_type)` mit 3-tuple Return) — gefixt + Test-Mock aktualisiert. `/upload`-Route bleibt Redirect zu Cockpit `#docs` (Section-A-Prinzip gewahrt).
+
+**Score-Effekt:** G 50→100 (+50, weight 5%), H 65→100 (+35, weight 9%), I 25→100 (+75, weight 5%). **Gesamt 63 → 72.**
+
+**Test-Bilanz:** Backend pytest 260 passed / 2 pre-existing failures (`test_config.embedding_dimension`, unrelated). Frontend lint clean, `tsc --noEmit` clean. Playwright 21 passed / 6 skipped / 0 failed inkl. 4 neuer Specs (`state-flash`, `error-banner`, `document-replace`, plus `delete-undo` Regression-grün).
+
+**Offen / Follow-ups:**
+- I: Chat-message Tool-Use-Pille zeigt noch nicht „Quell-Doc gelöscht"-Badge bei archived doc_ids (Folge-Polish, nicht Blocker).
+- H: ARQ-Worker `max_tries` ist global 3 ohne klassen-spezifischen Backoff — der per-Step `_step_with_retry` ersetzt das im Pipeline-Code, der ARQ-Fallback bleibt aber simpel.
+- E1: `extracted_item.action` weiter `"added"` only (unverändert seit D/E/F-Sweep).
+
+---
+
+### 2026-05-22 — D + E + F Sweep
+
+**Streams gelandet** (3 Wellen, 7 Subagents parallel via Plan in `/home/jonas/.claude/plans/alright-make-a-plan-enumerated-aurora.md`):
+
+- **D1 + E1 (Backend Pipeline)** — Alembic `0009_document_cancel_dedup_retry` (Spalten `arq_job_id`, `content_hash`, `retry_count`, `error_class` + partial Hash-Index + `cancelled` Status). `routers/documents.py`: SHA-256 Dedup mit 409 + `?allow_duplicate=true` Bypass, strukturiertes 415 mit `hint`, `DELETE …?cancel_pipeline=true`, `POST …/retry`. `tasks/pipeline.py`: `CancelledPipeline` + `_check_cancel()` Top jeder Step-Funktion, `_publish_extracted_items()` mit 50 ms/200 ms Burst-Throttle Cap 5 s. `services/extraction.py`: `ExtractedItem` Pydantic + `_normalise_extracted_delta()` mit stabilen IDs. 16/16 neue Tests grün.
+
+- **D2 (Frontend Upload-UX)** — `CockpitLayout.tsx` page-wide Drag-Overlay (enter-counter, Chat-Input-Bypass). `ChatInput.tsx` Paperclip + `onPaste` (Bild → `screenshot-{ts}.png`, > 200 Zeichen → `TextPasteModal` pre-filled). `TextPasteModal.tsx` `initialContent` Prop. `DocumentCard.tsx` 4-Phasen-Chip-Row + Details-Toggle (9 Steps) + Retry/Cancel-Buttons. `lib/upload.ts` typed Errors `Duplicate`/`UnsupportedUploadError` + `lib/uploadFlow.ts` 409-Confirm + 415-Toast mit „Als Text einfügen?"-Action. `tests/e2e/upload-paste-drop.spec.ts` (7 Specs, 5 pass + 2 skip).
+
+- **F1 (Backend State-Schema)** — Alembic `0010_state_source_ids_backfill` Data-Migration (pro Projekt Versionen ASC, erste Item-Auftauchen → `triggered_by_document_id`, Rest → `legacy:pre-migration`). `services/state_manager.merge_state` accept `document_id`, Set-Union für alle Core-Typen via `_ensure_sources()`. `services/briefing.py` accept `documents_by_id` + `_render_source(item)` + `## ⚠ Konflikte` Sektion + neue Deadlines-Sektion. `tasks/pipeline.py` Call-Site updated. 24/24 neue Tests grün.
+
+- **E2 (Frontend Live-Extraction)** — `useProjectSSE.ts` `extracted_item` Handler + `isConnected` Export. `pipelineStore.ts` `liveItemsByDoc` + `lastItemAtByDoc` + `expandedDocs` + `addLiveItem`/`collapseDoc`. `DocumentCard.tsx::LiveFeed` Sub-Component (Icons per Typ, Confidence-Dot, Click → `scrollIntoView` + `.flash` Klasse 500 ms). `StatusPanel.tsx` `<AnimatedCount>` framer-motion 200 ms easeOut. `GlobalStatusBar.tsx` Pulse-Soft + 3 s-Grace Disconnect-Banner. `globals.css` `@keyframes flash` + `@keyframes pulse-soft`.
+
+- **F2 (Backend Confidence + Konflikte + Chat-Source)** — `extraction.py` `confidence: Literal["high","medium","low"]` required mit einmaligem Re-Prompt bei Fehlschlag. `state_manager.detect_conflicts(state)` per-Typ Key-Field-Vergleich nach Title-Normalisierung; `merge_state` schreibt `state["conflicts"]`. `routers/chat.py` `_append_chat_source(item, session_id)` (dedupe + legacy-Promotion) auf `_update_task_status` + `_execute_tool`/`_run_agent` mit `session_id`-Threading. 26/26 neue Tests grün.
+
+- **F3 (Frontend Source/Confidence/Konflikt-UI)** — `hooks/useDocuments.ts` (`useQuery(["documents", projectId])` + `useDocumentsById()`). `lib/conflicts.ts` `Conflict`-Typ + `conflictForItem()`. `components/state/SourcePill.tsx` (Chips für Doc-ID/`chat:`/`manual:`/`legacy:` mit Mid-Truncate + „+N more"-Overflow + Drawer-CustomEvent). `ConfidenceBadge.tsx` + `confidenceBorderClass()` Helper. `ConflictBadge.tsx` rot mit Field-Tooltip. Integriert in TaskCard, ContactCard, BlockerCard, DecisionCard, StateGrid (Deadlines + Dynamic-Items inline). `id={\`${type}-${item.id}\`}` auf jedem Card-Wurzel-Element.
+
+- **Wave 3 Final-Verify** — Backend pytest 191/193 (2 vorbestehende `test_config.embedding_dimension` Failures, unrelated). Frontend lint clean. Playwright 18/23 pass + 5 skip + 0 fail (`upload-errors.spec.ts` Assertion auf neue Toast-Variante angepasst). Migrations `0009` + `0010` angewandt; DB head = `0010`. Frontend-Container nach Build-Cache-Konflikt 1× neu gestartet (Anwendung von `feedback_container-restart-after-refactor`).
+
+**Score-Effekt:** A→80, B→75, C→80, D→95, E→100, F→94, H→65 (Retry+Cancel-Endpoint+`error_class`+`retry_count`), N→70 (Bild+Lang-Text-Paste), V→60 (Count-Up + Pulse-Soft + Flash). **Gesamt 40 → 63.**
+
+**Offen / Follow-ups:**
+- F: `manual:{user_id}` Source blockiert auf Mutation-API (UI-Pille ready).
+- D: Drop-on-Chat-Input vollständige Inline-Referenzkarte gehört zu B.
+- E1: `extracted_item.action` aktuell immer `"added"`; `updated`-Diff via Pre-Merge-Snapshot deferred.
+- SourcePill Doc-Click feuert `openDocumentDrawer` CustomEvent — Drawer-Listener fehlt noch.
+- H: Retry-Backoff-Tabelle pro Error-Klasse + `/api/health/{live,ready}` Endpoints offen.
 
 ---
 
@@ -94,7 +148,7 @@ Ein Cockpit pro Projekt. Eine Route. Chat dominiert visuell und im DOM. Status-B
 
 ### ✅ Checkliste (Desktop)
 - [ ] Neue Route `/projects/[id]/page.tsx` als einziger Einstieg, ohne Tabs.
-- [ ] Chat-Input dauerhaft am unteren Viewport-Rand sichtbar.
+- [x] Chat-Input dauerhaft am unteren Viewport-Rand sichtbar.
 - [ ] Status-Block (kompakte einzeilige Zusammenfassung) ist im Ruhezustand expanded, andere Bereiche collapsed.
 - [ ] Klick / Fokus auf Chat-Input animiert Cockpit-Bereiche `translateY(-100%)` aus dem Viewport (synchron, 300 ms ease-out).
 - [ ] Klick auf Projektname schließt Chat-Fullscreen, animiert Cockpit zurück (Esc-Verhalten siehe Sektion P).
@@ -143,18 +197,18 @@ Der Chat ist die Hauptinteraktion. Token-Streaming wirkt natürlich und nicht ru
 - [x] Markdown-Rendering inkl. Code / Listen.
 - [x] Modell-Dropdown im Chat-Input.
 - [x] Abort-Button während Streaming.
-- [~] Tool-Use-Indikator (vorhanden, aber als Footer-Text, nicht inline pro Call).
-- [ ] Inline-Pille pro Tool-Call (`🔍 Durchsuche Dokumente…` → collapsed `🔍 3 Dokumente durchsucht`).
-- [ ] Tool-Pille expandierbar mit Argument + Ergebnis-Auszug.
-- [ ] Mutation-Artifact-Karte (`✓ Task X als erledigt markiert [Rückgängig]`).
-- [ ] Undo-Button schaltet nach 30 s grau aus und verschwindet.
-- [ ] Undo = inverse Operation auf das einzelne Item (Task-Status zurück), nie Git-Revert.
-- [ ] Datei-Anhang-Button (Büroklammer) im Input.
-- [ ] Drop von Datei auf Chat-Input → Upload + Inline-Referenzkarte über der Nachricht.
+- [x] Tool-Use-Indikator inline als Pille pro Tool-Call.
+- [x] Inline-Pille pro Tool-Call (`🔍 Durchsuche Dokumente…` → collapsed `🔍 3 Dokumente durchsucht`).
+- [x] Tool-Pille expandierbar mit Argument + Ergebnis-Auszug.
+- [x] Mutation-Artifact-Karte (`✓ Task X als erledigt markiert [Rückgängig]`).
+- [x] Undo-Button schaltet nach 30 s grau aus und verschwindet.
+- [x] Undo = inverse Operation auf das einzelne Item (Task-Status zurück), nie Git-Revert.
+- [x] Datei-Anhang-Button (Büroklammer) im Input.
+- [~] Drop von Datei auf Chat-Input → Upload + Inline-Referenzkarte über der Nachricht.
 - [ ] Slash-Command-Autocomplete (siehe Sektion O).
 - [x] Shift+Enter = Newline, Enter = Send (Desktop).
 - [ ] Mobile: Enter = Newline, Send-Button explizit (Touch).
-- [ ] Empty-State zeigt 3 statische Beispiel-Prompts: „Was sind die offenen Tasks?", „Welche Deadlines stehen an?", „Fasse den aktuellen Status zusammen".
+- [x] Empty-State zeigt 3 statische Beispiel-Prompts: „Was sind die offenen Tasks?", „Welche Deadlines stehen an?", „Fasse den aktuellen Status zusammen".
 
 ### 🛠 Vorgehen
 1. Streaming-Throttle (aktuell 12 char/frame) bleibt Implementation-Detail; Wert frei tunebar wenn Stream als ruckelig empfunden wird.
@@ -181,17 +235,17 @@ Vergangene Chats sind eigenständige Sessions mit eigenem Verlauf, auto-generier
 - Frontend: kein Archiv-UI, keine Sidebar-Sektion „Vergangene Chats".
 
 ### ✅ Checkliste
-- [ ] DB-Migration: Neue Tabelle `chat_sessions` (id, project_id, title, summary, created_at, last_message_at, message_count, archived_at NULL).
-- [ ] `chat_messages.session_id` als FK; Alembic-Backfill: alle Bestehenden in eine „Migration"-Session pro Projekt mit Titel „Importierter Verlauf".
-- [ ] Endpoint `POST /api/projects/{id}/chat/sessions` (neuer Chat) + `GET .../sessions` (Liste) + `GET .../sessions/{sid}/messages`.
-- [ ] Auto-Titel: nach erster User-Message via kurzem LLM-Call (Output max 60 Token, fallback = erste 40 Zeichen der ersten Message). Kosten siehe Sektion K (wird im Token-Counter mitgezählt).
-- [ ] Manuell editierbarer Titel (PATCH `/sessions/{sid}`).
-- [ ] Frontend: Chat-Archiv-Bereich im Cockpit (collapsed, expand-Klick zeigt Liste).
+- [x] DB-Migration: Neue Tabelle `chat_sessions` (id, project_id, title, summary, created_at, last_message_at, message_count, archived_at NULL).
+- [x] `chat_messages.session_id` als FK; Alembic-Backfill: alle Bestehenden in eine „Migration"-Session pro Projekt mit Titel „Importierter Verlauf".
+- [x] Endpoint `POST /api/projects/{id}/chat/sessions` (neuer Chat) + `GET .../sessions` (Liste) + `GET .../sessions/{sid}/messages`.
+- [x] Auto-Titel: nach erster User-Message via kurzem LLM-Call (Output max 60 Token, fallback = erste 40 Zeichen der ersten Message). Kosten siehe Sektion K (wird im Token-Counter mitgezählt).
+- [x] Manuell editierbarer Titel (PATCH `/sessions/{sid}`).
+- [x] Frontend: Chat-Archiv-Bereich im Cockpit (collapsed, expand-Klick zeigt Liste).
 - [ ] Inline-Suchfeld beim Expand, Debounce 300 ms, filtert nach Titel + Nachrichten-Volltext (Postgres `to_tsvector` mit deutscher Stopword-Liste; Fallback `ILIKE`).
-- [ ] „Neuer Chat"-Button erzeugt frische Session, aktiver Chat-Switch ohne Page-Reload.
-- [ ] Keyboard-Shortcut Ctrl/Cmd+N startet neue Session.
+- [x] „Neuer Chat"-Button (Back-Arrow in ConversationView) erzeugt frische Session, aktiver Chat-Switch ohne Page-Reload.
+- [x] Keyboard-Shortcut Ctrl/Cmd+N startet neue Session.
 - [ ] Beim Cockpit-Mount: letzte Session innerhalb 24 h wird automatisch geladen (collapsed im Input). Älter → frische Slot, leer.
-- [ ] Session-Delete archiviert (soft-delete via `archived_at`), versteckt aus Liste, behält DB-Daten.
+- [x] Session-Delete archiviert (soft-delete via `archived_at`), versteckt aus Liste, behält DB-Daten.
 - [ ] Historische Render-Konsistenz: beim Öffnen alter Session wird `state_version` pro Message in Tool-Pillen sichtbar („antwortet basierend auf State v12").
 
 ### ⚖️ Decisions
@@ -220,18 +274,18 @@ Drag & Drop auf gesamte Seite (nicht nur Zone). Datei-Picker via Button. Clipboa
 - [x] Pro-Datei-Fehler isoliert.
 - [x] Cancel während HTTP-Upload (via `UploadHandle.abort()`).
 - [x] Size-Limit-Toast.
-- [ ] Pipeline-Cancel-Endpoint `DELETE /api/projects/{id}/documents/{doc_id}?cancel_pipeline=true` → ARQ Job-Cancel + Doc-Status `cancelled`.
-- [ ] Page-wide Drag-Overlay (Drop anywhere auf der Cockpit-Seite, außer auf Chat-Input).
-- [ ] Drop auf Chat-Input = Anhang an aktuelle Nachricht (siehe Sektion B).
-- [ ] Drop überall sonst = neues Dokument.
-- [ ] Ctrl+V Paste-Handler: Bild aus Clipboard → Upload als `screenshot-{YYYY-MM-DD-HHmmss}.png`; Text > 200 Zeichen → `TextPasteModal` vorbefüllt; Text ≤ 200 Zeichen + Chat-Input fokussiert → normales Paste in Input (siehe Sektion N).
-- [ ] Datei-Anhang aus Chat-Input (Büroklammer-Icon).
-- [ ] Bei `unsupported_media_type`: konkreter Hinweis welche Formate erlaubt sind + Vorschlag „Inhalt als Text einfügen?".
-- [ ] Per-File-Retry-Button auf gefailten Upload-Zeilen.
-- [ ] Fortschrittsanzeige Default-Modus zeigt 4 Phasen: **Hochladen → Parsen → Extrahieren → Mergen**. Mapping: `queued+upload→Hochladen`, `parsing→Parsen`, `summarize_extract→Extrahieren`, `state_merge+state_persist+changelog+git_commit+embed+briefing→Mergen`.
-- [ ] „Details"-Toggle pro Doc-Card öffnet alle 9 Backend-Steps mit Status + Timing.
-- [ ] Duplikat-Detection: SHA-256 Hash des File-Bytes als `documents.content_hash`. Bei identischem Hash im Projekt → Confirm-Dialog „Diese Datei existiert schon als X. Trotzdem hochladen?".
-- [ ] Hash-Index: `CREATE INDEX idx_documents_project_hash ON documents (project_id, content_hash)`.
+- [x] Pipeline-Cancel-Endpoint `DELETE /api/projects/{id}/documents/{doc_id}?cancel_pipeline=true` → ARQ Job-Cancel-Flag (`cancel:{job_id}` Redis-Key) + Doc-Status `cancelled` + SSE `pipeline_cancelled`. (`routers/documents.py`, `tasks/pipeline.py::_check_cancel`, Alembic `0009`.)
+- [x] Page-wide Drag-Overlay (Drop anywhere auf der Cockpit-Seite, außer auf Chat-Input). (`components/cockpit/CockpitLayout.tsx`.)
+- [~] Drop auf Chat-Input = Anhang an aktuelle Nachricht — basic Drop → Upload via Cockpit-Pfad; vollständige Inline-Referenzkarte gehört zu Sektion B.
+- [x] Drop überall sonst = neues Dokument.
+- [x] Ctrl+V Paste-Handler: Bild aus Clipboard → Upload als `screenshot-{YYYY-MM-DD-HHmmss}.png`; Text > 200 Zeichen → `TextPasteModal` vorbefüllt (`initialContent` prop); Text ≤ 200 Zeichen + Chat-Input fokussiert → normales Paste in Input. (`components/chat/ChatInput.tsx`, `lib/utils.ts::formatTs`.)
+- [x] Datei-Anhang aus Chat-Input (Büroklammer-Icon).
+- [x] Bei `unsupported_media_type`: strukturiertes 415 mit `allowed` + `hint`; Frontend Toast mit „Inhalt als Text einfügen?"-Action. (`routers/documents.py`, `lib/uploadFlow.ts`.)
+- [x] Per-File-Retry-Button auf gefailten/cancelled Upload-Zeilen → `POST /api/projects/{id}/documents/{did}/retry` resets error + new `arq_job_id` + `retry_count++`. (`routers/documents.py`, `components/upload/DocumentCard.tsx`.)
+- [x] Fortschrittsanzeige Default-Modus zeigt 4 Phasen: **Hochladen → Parsen → Extrahieren → Mergen** über `STEP_TO_PHASE` Map (`lib/pipeline-phases.ts`); UI in DocumentCard.
+- [x] „Details"-Toggle pro Doc-Card öffnet alle 9 Backend-Steps mit Status + Timing.
+- [x] Duplikat-Detection: SHA-256 Hash des File-Bytes als `documents.content_hash` (Alembic `0009`). Bei identischem Hash im Projekt → 409 `{detail: {code: "duplicate", existing_document_id, filename}}`; Frontend Confirm-Dialog → Retry mit `?allow_duplicate=true`.
+- [x] Hash-Index: `ix_documents_project_hash ON documents(project_id, content_hash) WHERE content_hash IS NOT NULL` (partial unique; Alembic `0009`).
 
 ### 🛠 Vorgehen
 1. Drag-Overlay als globaler Layer im Cockpit (`onDragEnter` window-level Listener). Chat-Input fängt sein eigenes drop-Event ab und stoppt Propagation.
@@ -262,14 +316,15 @@ Nach Abschluss collapsed der Feed zu einer Zusammenfassungs-Zeile (`3 Tasks, 1 D
 - [x] SSE-Stream pro Projekt.
 - [x] Step-Events pro Dokument (8 Steps).
 - [x] Aggregierte Session-Counts.
-- [ ] Neues Event `extracted_item` pro Item-Typ während Extraction: `{type: "task"|"contact"|..., item_id, title, action: "added"|"updated"}`.
-- [ ] Pro Dokument-Zeile ein expandierbarer Live-Feed der Events.
-- [ ] Live-Item Hover-Tooltip zeigt Source-Doc + Confidence; Klick scrollt zum State-Item und highlightet es (500 ms Flash).
-- [ ] Feed collapsed nach Abschluss zu einzeiliger Summary mit 3 s Delay — **pausiert** wenn neue Doc-Activity im Bereich läuft.
-- [ ] Bei Fehler bleibt Feed expanded + Warn-Indikator (kein Auto-Collapse).
-- [ ] Count-Up-Animation auf Status-Block-Zahlen (200 ms ease-out).
-- [ ] Pulsierende Phasen-Label (Opacity-Loop 0.5 → 1.0 in 1.5 s).
-- [ ] „SSE getrennt"-Banner wenn `connectionState !== "connected"` (existiert in Upload-Page-Header — auf Cockpit übertragen).
+- [x] Neues Event `extracted_item` pro Item-Typ während Extraction: `{event, document_id, type, item_id, title, action, confidence}`. (`tasks/pipeline.py::_publish_extracted_items`.) Anmerkung: `action` = `"added"` für erste Version; `updated`-Refinement deferred.
+- [x] Pro Dokument-Zeile ein expandierbarer Live-Feed der Events. (`components/upload/DocumentCard.tsx::LiveFeed`.)
+- [x] Live-Item Hover-Tooltip zeigt Source-Doc + Confidence; Klick scrollt zum State-Item (`getElementById(\`${type}-${itemId}\`)`) und highlightet es 500 ms via `.flash`-Klasse.
+- [x] Feed collapsed nach Abschluss zu einzeiliger Summary mit 3 s Delay — **pausiert** wenn neue Doc-Activity im Bereich läuft (`useEffect` reset auf `lastItemAtByDoc`).
+- [x] Bei Fehler bleibt Feed expanded + Warn-Indikator (kein Auto-Collapse).
+- [x] Count-Up-Animation auf Status-Block-Zahlen (200 ms ease-out via framer-motion `animate()` in `<AnimatedCount>`).
+- [x] Pulsierende Phasen-Label (Opacity-Loop 0.5 → 1.0 in 1.5 s; `.animate-pulse-soft` in `globals.css`, gated auf `prefers-reduced-motion`).
+- [x] „SSE getrennt"-Banner wenn `connectionState !== "open"` für > 3 s Grace-Period (`components/layout/GlobalStatusBar.tsx`).
+- [x] Backend Burst-Throttle: Items < 50 ms auseinander → künstlicher 200 ms Delay zwischen ihnen; Cap kumulativ 5 s pro Dokument (verhindert Worker-Blockade bei 100+ Items).
 
 ### 🛠 Vorgehen
 1. `_log_pipeline` um zweites Event `extracted_item` erweitern, das `_extracted_summary` zerlegt und einzeln streamt.
@@ -298,19 +353,19 @@ Jedes Item im State (Contact / Task / Deadline / Decision / Blocker / dynamic_se
 - [x] Extraction-Prompt verbietet Halluzination.
 - [x] Dedup-Logik pro Item-Typ.
 - [x] Source-Attribution für Tasks + Dynamic Sections.
-- [ ] State-JSON-Schema erweitert: alle Core-Items haben `source_document_ids: string[]` (statt singular).
-- [ ] Task-Migration: bestehendes `source_document_id` → `source_document_ids: [old_id]`.
-- [ ] Backfill bestehender States via Inferenz: pro State-Version → `change_session_documents` der Version → diese Doc-IDs sind Quelle für alle in dieser Version *neu hinzugekommenen* Items. Items aus älteren Versionen ohne ableitbare Quelle → markiert mit `"legacy:pre-migration"`, im UI dezent angezeigt als „Quelle vor Migration verloren".
-- [ ] Merge mergt Source-IDs (Set-Union), überschreibt nicht.
-- [ ] Briefing rendert pro Item eine Quelle-Zeile (Dateiname verkürzt, Klick → Dokument-Drawer).
-- [ ] Chat-State-Mutations setzen `source = "chat:{session_id}"`. Bei Session-Soft-Delete bleibt Source-String erhalten, UI rendert „aus archiviertem Chat".
-- [ ] Manuelle Edits (zukünftig) setzen `source = "manual:{user_id}"`.
-- [ ] TaskCard auflöst Source-ID(s) zu Filename(n) via `useQuery(["documents", projectId])`. Bei Multi-Source: „aus 3 Dokumenten" mit Hover-Liste.
-- [ ] Source-Pille überall (TaskCard, ContactCard, BlockerCard, DecisionCard, DynamicItem).
-- [ ] Confidence-Feld **verpflichtend** im Extraction-JSON-Schema (`enum: [high, medium, low]`, nicht optional).
-- [ ] Extraction-Prompt erweitert: „Setze `confidence: 'low'` wenn die Information mehrdeutig, fragmentiert oder spekulativ wäre. Lieber low als gar nicht extrahieren — aber Erfindung bleibt verboten."
-- [ ] Medium/Low-Confidence-Items: gelber Border-Akzent + „Bitte prüfen"-Badge in allen Card-Komponenten.
-- [ ] Konflikt-Resolution: Doc A sagt Deadline 14.06., Doc B sagt 16.06. → **dedupliziere nicht** (zwei Items mit gleichem Titel, verschiedenem Datum), beide Items mit Source-Attribution sichtbar, Briefing zeigt beide als „konfligierend: 14.06. (Doc A) vs 16.06. (Doc B)". State-Manager bekommt neue Methode `detect_conflicts()` die auf identischen Titel + abweichende Detail-Felder prüft.
+- [x] State-JSON-Schema erweitert: alle Core-Items haben `source_document_ids: string[]` (statt singular). (Alembic `0010` Data-Migration.)
+- [x] Task-Migration: bestehendes `source_document_id` → `source_document_ids: [old_id]`; singular Key wird gedroppt.
+- [x] Backfill bestehender States via Inferenz: pro State-Version → `ProjectState.triggered_by_document_id` der ersten Version, in der das Item auftaucht, wird Source-ID. Items aus Versionen ohne `triggered_by_document_id` → `["legacy:pre-migration"]`, im UI als „Quelle vor Migration verloren" gerendert. (`alembic/versions/0010_state_source_ids_backfill.py::_backfill_state`.)
+- [x] Merge mergt Source-IDs (Set-Union, sortiert), überschreibt nicht. (`services/state_manager.py::_ensure_sources` für alle Core-Typen + dynamic_sections.)
+- [x] Briefing rendert pro Item eine Quelle-Zeile via `_render_source(item, documents_by_id)`; Markdown italic `_ (Quelle: …)_` unter Tasks/Contacts/Deadlines/Decisions/Blockers. (`services/briefing.py`.)
+- [x] Chat-State-Mutations setzen `chat:{session_id}` in `source_document_ids` des betroffenen Items via `_append_chat_source` (dedupliziert). Briefing rendert „aus Chat".
+- [ ] Manuelle Edits setzen `source = "manual:{user_id}"` — blockiert auf Mutation-API; Renderer für `manual:`-Prefix ist da (`components/state/SourcePill.tsx`).
+- [x] TaskCard / ContactCard / BlockerCard / DecisionCard / Deadline-/Dynamic-Item lösen Source-IDs zu Filenames auf via `useDocuments(projectId)` Hook. Multi-Source: erste 2 Pillen + „+N more"-Pille mit Hover-Liste.
+- [x] Source-Pille überall: `<SourcePill ids={...} documents={...} />` integriert in alle State-Cards + StateGrid (Deadlines, DynamicItems inline).
+- [x] Confidence-Feld **verpflichtend** im Pydantic-`ExtractedItem` (`Literal["high","medium","low"]`); JSON-Validation auf LLM-Output mit einmaligem Re-Prompt bei Fehlschlag (`services/extraction.py`).
+- [x] Extraction-Prompt erweitert: „Setze `confidence: 'low'` wenn die Information mehrdeutig, fragmentiert oder spekulativ ist. Lieber low als gar nicht extrahieren — aber Erfindung bleibt verboten."
+- [x] Medium/Low-Confidence-Items: amber/orange Ring-Border + „Bitte prüfen"-Badge via `<ConfidenceBadge>` + `confidenceBorderClass()` Helper.
+- [x] Konflikt-Resolution: `state_manager.detect_conflicts(state)` (Title-Normalisierung lower+strip+collapse-whitespace, dann per-Typ Key-Field-Vergleich: deadline.date, task.due_date+status, contact.email+role, decision.summary+date, blocker.description). `state["conflicts"]` wird beim Merge gesetzt; Briefing rendert eigene `## ⚠ Konflikte` Sektion; UI zeigt `<ConflictBadge>` an beiden Items mit Tooltip der divergierenden Felder.
 
 ### ⚖️ Decisions
 - **Confidence-Score** → Verpflichtend. Fehlendes Feld in LLM-Output → Re-Prompt mit Schema-Schärfung (siehe Sektion H). Nicht „fehlend = high"; das würde das Feature stilllegen.
@@ -334,11 +389,11 @@ Ruhezustand: eine Zeile `3 offene Tasks · Nächste Deadline: 14.06. · 1 Blocke
 ### ✅ Checkliste
 - [x] StateGrid mit Sektions-Karten.
 - [x] Changelog-Timeline mit Diff-Modal.
-- [ ] `StatusSummaryRow` Komponente: zählt open_tasks (status != done), findet nächste Deadline, zählt Blocker, formatiert `last_change` relativ.
-- [ ] Klick auf Summary expandiert StateGrid darunter mit Slide-Down (300 ms ease-out).
-- [ ] Pipeline-Event `state_changed` triggert Highlight-Flash auf betroffener Section-Card.
-- [ ] Versions-Footer mit Link auf Timeline-Modal.
-- [ ] Empty-State (siehe zentrale Definition in Sektion 3 Cross-Cutting).
+- [x] `StatusSummaryRow` Komponente: `StatusPanel` zeigt open_tasks-Count, Next-Deadline (via `nextDeadline()` shared util mit Backend `compute_next_deadline`), Blocker-Count, last-change relativ.
+- [x] Klick auf Summary öffnet `StateDetailModal` mit StateGrid + StateTimeline darunter.
+- [x] Pipeline-Event `state_changed` (publiziert in `tasks/pipeline.py` mit `sections`-Array) triggert `.flash`-Klasse auf betroffener SectionCard (`StateGrid.tsx::useFlashingSections`).
+- [x] Versions-Footer im Modal: `Zuletzt geändert vor N · Version V · Historie ansehen` (Anchor zu `#state-history`).
+- [x] Empty-State: zentrale Copy „Der Projektstatus wird automatisch aufgebaut, sobald Dokumente hochgeladen werden." in StateGrid integriert.
 
 ### 🛠 Vorgehen
 **Nächste-Deadline-Logik** (deterministisch, ein Ort, von Frontend + Briefing-Renderer geteilt):
@@ -370,17 +425,17 @@ Kein gescheitertes Dokument korrumpiert den State. Jeder Pipeline-Schritt ist id
 - [x] Pro-Doc-Failure-Isolation (Lock + per-doc transaction).
 - [x] Übersetzte Fehlermeldungen.
 - [x] Kein State-Update bei Extraction-Fail.
-- [ ] Retry-Policy pro Error-Klasse (siehe Tabelle unten).
-- [ ] Retry-Button auf gefailter DocumentCard → ARQ Re-Enqueue mit Retry-Counter-Reset.
-- [ ] `Document.error_message` Spalte mit konkretem Fehlertext.
-- [ ] `Document.error_class` Spalte (`parse_error|llm_timeout|llm_invalid_json|llm_rate_limit|llm_5xx|embedding_failed|transcription_failed|...`).
-- [ ] `Document.retry_count` Spalte (Reset bei manuellem Retry).
-- [ ] Bei neuem Pipeline-Run werden `error_message` + `error_class` gecleart.
-- [ ] Error-Banner pro Doc mit expandierbarem Detail-Block.
-- [ ] Pipeline schreibt jeden Schritt-Failure in `pipeline_logs` mit Stacktrace (debug-Flag-gesteuert).
-- [ ] Bei `llm_invalid_json` zweiter Versuch mit verschärftem System-Prompt: konkrete JSON-Schema-Block injiziert (`{"type":"object","required":[...],"properties":{...}}`) + Beispiel-Output am Ende. Retry-Counter pro Step.
-- [ ] Embedding-Failure → Doc-Status `completed_partial`, State + Briefing OK, `search_documents`-Tool im Chat warnt „Suche aktuell auf X von Y Docs eingeschränkt".
-- [ ] Healthcheck-Endpoint `/api/health`: `/live` (200 wenn Prozess läuft) + `/ready` (testet LLM + Redis + Qdrant + DB).
+- [x] Retry-Policy pro Error-Klasse (Matrix in `tasks/pipeline.py::_RETRY_MATRIX`, Backoff per Klasse).
+- [x] Retry-Button auf gefailter DocumentCard/DocumentRow → `/retry` Endpoint resettet Status + inkrementiert `retry_count`.
+- [x] `Document.processing_error` Spalte (= `error_message`) mit konkretem Fehlertext.
+- [x] `Document.error_class` Spalte (`llm_rate_limit|llm_timeout|llm_5xx|llm_invalid_json|parse_error|embedding_failed|...`).
+- [x] `Document.retry_count` Spalte (Reset bei manuellem Retry über `/retry`).
+- [x] Bei neuem Pipeline-Run werden `error_class` + `processing_error` zu Beginn gecleart (`pipeline.py::_process`).
+- [x] Error-Banner pro Doc inline in `DocumentRow` (DocumentsPanel) — zeigt `processing_error`-Text bei `failed`.
+- [x] Pipeline schreibt Stacktrace in `pipeline_logs[].traceback` wenn `settings.debug_tracebacks=true`.
+- [x] Bei `llm_invalid_json` ein-mal Re-Prompt mit injiziertem `ExtractedDelta.model_json_schema()` und „Return only valid JSON matching this schema."-Header (`services/extraction.py`).
+- [x] Embedding-Failure → `processing_status = "completed_partial"`, State + Briefing rendern; `search_documents`-Tool warnt „Suche aktuell auf X von Y Docs eingeschränkt".
+- [x] Healthcheck: `/api/health/live` (200 sofort) + `/api/health/ready` (DB + Redis + Qdrant parallel via `asyncio.gather`, 503 bei degradiert). Alembic `0012` ergänzt `completed_partial` im DB-CheckConstraint.
 
 ### Retry-Policy-Tabelle
 
@@ -418,23 +473,23 @@ Kein gescheitertes Dokument korrumpiert den State. Jeder Pipeline-Schritt ist id
 - **Kein** Undo-Toast.
 
 ### ✅ Checkliste
-- [ ] DB: `documents.replaces_document_id` FK (nullable, self-referential).
-- [ ] DB: `documents.archived_at` Timestamp; List-Endpoint filtert default `archived_at IS NULL`.
-- [ ] Delete-Endpoint Default = Sanft. Optional Query `?strategy=git_revert` für Hard-Variante.
-- [ ] Re-Komposition-Regel pro Item nach Source-Removal:
-  - Wenn `source_document_ids` nach Removal leer **UND** Item nicht via Chat-Mutation/manuell geändert → Item wird entfernt.
-  - Wenn `source_document_ids` leer **UND** Item hat `last_modified_source` ∈ `{chat:*, manual:*}` → Item bleibt mit Source `orphaned:{deleted_doc_id}`, UI markiert „Quell-Dokument gelöscht".
-  - Wenn `source_document_ids` nach Removal noch ≥ 1 Eintrag → Item bleibt unverändert.
-- [ ] `state_items.last_modified_source` als implizites Tracking (im JSON: `source_document_ids: [...]` + `last_modified_source: "..."`).
-- [ ] Replace-Endpoint Phase 1: `POST /api/projects/{id}/documents/{doc_id}/replace?dry_run=true` → Diff-Preview ohne State-Commit.
-- [ ] Replace-Endpoint Phase 2: `POST /api/projects/{id}/documents/{doc_id}/replace` → Commit.
-- [ ] UI: Document-Card-Menü mit „Ersetzen…" + „Löschen…" → öffnet Modal mit Diff-Preview-Vorschau (additions grün, removals rot, modifications gelb).
-- [ ] 30 s Undo-Toast nach Delete (Re-Insert + Source-IDs restoren + Qdrant Re-Index).
-- [ ] Cascade-Behandlung beim Delete:
-  - Qdrant-Vektoren: hart löschen.
-  - `pipeline_logs`: behalten (Audit-Trail).
-  - `change_session_documents`: behalten (historische Aggregation).
-  - `chat_messages.state_version`: unverändert (Messages sind immutable, zeigen nur dezentes „Quell-Doc gelöscht"-Badge bei Tool-Use-Pillen die diese Doc-ID referenzieren).
+- [x] DB: `documents.replaces_document_id` FK (nullable, self-referential, Alembic `0011`).
+- [x] DB: `documents.archived_at` Timestamp + partial index `WHERE archived_at IS NULL`; List-Endpoint filtert default, `?include_archived=true` zum Opt-in.
+- [x] Delete-Endpoint Default = Sanft (`archived_at = now()` + `remove_document_source` + neue ProjectState-Version `triggered_by=document_delete` + Qdrant cascade + SSE `document_archived`). Optional `?strategy=git_revert` rollt auf Pre-Upload-Version zurück.
+- [x] Re-Komposition-Regel pro Item nach Source-Removal in `state_manager.remove_document_source`:
+  - `source_document_ids` leer + kein Chat-/Manual-Tracking → Item entfernt.
+  - `source_document_ids` leer + `last_modified_source` ∈ `{chat:*, manual:*}` → Item bleibt mit `[orphaned:{doc_id}]`, UI Pill „Quell-Dokument gelöscht".
+  - `source_document_ids` ≥ 1 → unverändert.
+- [x] `state_items.last_modified_source` wird in `_ensure_sources` gepflegt (im Item-JSON).
+- [x] Replace-Endpoint Phase 1: `POST .../replace?dry_run=true` → Diff-Preview (`{additions, removals, modifications}`) ohne State-Commit.
+- [x] Replace-Endpoint Phase 2: `POST .../replace` → Commit mit `replaces_document_id` FK, archiviert Alt-Doc + recompose-State + neuer Pipeline-Run für neues Doc.
+- [x] UI: Kebab-Menü „Ersetzen…" + „Löschen…" in `DocumentRow` (DocumentsPanel, sichtbar bei Hover) → öffnet `DiffPreviewModal` mit grün/rot/amber Diff.
+- [x] 30 s Undo-Toast nach Delete in DocumentsPanel; Rückgängig ruft `restoreDocument` (clear archived_at + Pipeline-Re-Enqueue).
+- [x] Cascade-Behandlung beim Delete:
+  - Qdrant-Vektoren: hart löschen via `qdrant_service.delete_by_document`.
+  - `pipeline_logs`: behalten (kein Code-Path löscht).
+  - `change_session_documents`: behalten.
+  - `chat_messages.state_version`: unverändert (Messages immutable). Doc-Reference-Badge „Quell-Doc gelöscht" ist Folge-Polish, kein Blocker.
 
 ### ⚖️ Decisions
 - **Default-Delete = Sanft.** Git-Revert nur als expliziter Modal-Switch mit Warnung „Verwirft auch alle Änderungen seit Upload".

@@ -41,7 +41,7 @@ export const PIPELINE_PHASE_LABELS = {
 
 export type PipelinePhase = keyof typeof PIPELINE_PHASE_LABELS;
 
-const STEP_TO_PHASE: Record<string, PipelinePhase> = {
+export const STEP_TO_PHASE: Record<string, PipelinePhase> = {
   queued: "read",
   parsing: "read",
   summarize_extract: "analyze",
@@ -53,6 +53,22 @@ const STEP_TO_PHASE: Record<string, PipelinePhase> = {
   briefing: "index",
   enrich: "index",
 };
+
+/** Fixed order of the 4 phases as shown in the UI chip row. */
+export const PHASE_ORDER: ReadonlyArray<PipelinePhase> = [
+  "read",
+  "analyze",
+  "merge",
+  "index",
+];
+
+/** Map a raw backend step name to its phase index (0-3) or null if unknown. */
+export function phaseIndexForStep(raw: string | null | undefined): number {
+  if (!raw) return 0;
+  const phase = STEP_TO_PHASE[raw];
+  if (!phase) return 0;
+  return PHASE_ORDER.indexOf(phase);
+}
 
 /** Liefert ein benutzerfreundliches Label für einen rohen Backend-Step. */
 export function labelForPipelineStep(raw: string | null | undefined): string {

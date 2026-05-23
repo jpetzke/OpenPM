@@ -14,10 +14,11 @@ test("rejects unsupported file type with an inline error row", async ({ page }) 
     buffer: Buffer.from("MZ" + "A".repeat(64)),
   });
 
-  // DropZone shows the filename + "Format nicht unterstützt" inline.
-  await expect(page.getByText("Format nicht unterstützt").first()).toBeVisible({
-    timeout: 8_000,
-  });
+  // Cockpit surfaces the 415 either as inline DropZone row or as a toast
+  // carrying the backend hint. Accept either.
+  await expect(
+    page.getByText(/Format nicht unterstützt|Inhalt als Text einfügen/i).first(),
+  ).toBeVisible({ timeout: 8_000 });
 
   // No document card created.
   await expect(page.locator("article", { hasText: "trojan.exe" })).toHaveCount(0);

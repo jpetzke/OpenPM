@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { api } from "@/lib/api";
+import { formatRelativeTime } from "@/lib/utils";
 import { StateGrid } from "@/components/state/StateGrid";
 import { StateTimeline } from "@/components/state/StateTimeline";
 import type { ProjectState } from "@/types/state";
@@ -110,10 +111,31 @@ export function StateDetailModal({ projectId, onClose }: Props) {
           ) : (
             <>
               <StateGrid state={stateData.state} projectId={projectId} />
-              <StateTimeline projectId={projectId} />
+              <div id="state-history">
+                <StateTimeline projectId={projectId} />
+              </div>
             </>
           )}
         </div>
+
+        {stateData && (
+          <footer
+            className="shrink-0 border-t px-5 py-2.5 flex items-center gap-2 text-[12px]"
+            style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
+          >
+            <span>Zuletzt geändert {formatRelativeTime(stateData.created_at)}</span>
+            <span style={{ color: "var(--border-strong)" }}>·</span>
+            <span>Version {stateData.version}</span>
+            <span style={{ color: "var(--border-strong)" }}>·</span>
+            <a
+              href="#state-history"
+              className="transition-default hover:underline"
+              style={{ color: "var(--accent)" }}
+            >
+              Historie ansehen
+            </a>
+          </footer>
+        )}
       </div>
     </div>
   );

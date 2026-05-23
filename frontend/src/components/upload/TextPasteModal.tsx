@@ -9,12 +9,14 @@ import type { Document } from "@/types/document";
 interface TextPasteModalProps {
   projectId: string;
   onClose: () => void;
+  /** Pre-fill the content textarea (e.g. from a long-text paste). */
+  initialContent?: string;
 }
 
-export function TextPasteModal({ projectId, onClose }: TextPasteModalProps) {
+export function TextPasteModal({ projectId, onClose, initialContent }: TextPasteModalProps) {
   const qc = useQueryClient();
   const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [content, setContent] = useState(initialContent ?? "");
   const [loading, setLoading] = useState(false);
 
   const submit = async () => {
