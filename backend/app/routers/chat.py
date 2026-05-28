@@ -522,8 +522,14 @@ async def _run_agent(
       {"type": "tool_call_start", "call_id": str, "tool_name": str, "args": dict}
       {"type": "tool_call_end", "call_id": str, "tool_name": str, "result_summary": str}
       {"type": "mutation_card", "undo_token": str, "description": str, "expires_in": int}
+      {"type": "usage", "prompt_tokens": int, "completion_tokens": int, "model": str,
+       "cost_usd": float, "round": int}
+      {"type": "usage_total", "prompt_tokens": int, "completion_tokens": int, "cost_usd": float}
     """
     msgs = list(messages)  # local copy
+    total_prompt = 0
+    total_completion = 0
+    total_cost = 0.0
 
     for round_idx in range(MAX_AGENT_ROUNDS):
         # Don't offer tools on the last round — force a direct response.
@@ -546,8 +552,24 @@ async def _run_agent(
                 has_tool_calls = True
                 pending_tool_calls = event["calls"]
                 yield {"type": "tool_call", "tools": [tc["name"] for tc in pending_tool_calls]}
+            elif event["type"] == "usage":
+                # Accumulate and forward per-round usage
+                pt = event.get("prompt_tokens", 0)
+                ct = event.get("completion_tokens", 0)
+                cu = event.get("cost_usd", 0.0)
+                total_prompt += pt
+                total_completion += ct
+                total_cost += cu
+                yield {**event, "round": round_idx}
 
         if not has_tool_calls:
+            # Final round done — emit cumulative total
+            yield {
+                "type": "usage_total",
+                "prompt_tokens": total_prompt,
+                "completion_tokens": total_completion,
+                "cost_usd": total_cost,
+            }
             return
 
         # Add the assistant's tool-call turn to the message list.
@@ -602,6 +624,14 @@ async def _run_agent(
             })
 
         log.info("chat_agent_round_done", round=round_idx, tools=[tc["name"] for tc in pending_tool_calls])
+
+    # Max rounds exhausted — emit cumulative total
+    yield {
+        "type": "usage_total",
+        "prompt_tokens": total_prompt,
+        "completion_tokens": total_completion,
+        "cost_usd": total_cost,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -703,6 +733,7 @@ async def chat(
         tool_calls_log: list[str] = []
         error_occurred = False
         disconnected = False
+        usage_total: dict | None = None
 
         try:
             yield f"data: {json.dumps({'type': 'message_start', 'session_id': str(session_id)})}\n\n"
@@ -722,6 +753,12 @@ async def chat(
                     tool_calls_log.extend(event["tools"])
                     yield f"data: {json.dumps({'type': 'tool_call', 'tools': event['tools']})}\n\n"
                 elif event["type"] in ("tool_call_start", "tool_call_end", "mutation_card"):
+                    yield f"data: {json.dumps(event)}\n\n"
+                elif event["type"] == "usage":
+                    # Per-round usage — forward to client for real-time display
+                    yield f"data: {json.dumps(event)}\n\n"
+                elif event["type"] == "usage_total":
+                    usage_total = event
                     yield f"data: {json.dumps(event)}\n\n"
 
             if await request.is_disconnected():
@@ -748,6 +785,18 @@ async def chat(
             except Exception:
                 pass
 
+        # Build token_usage record for the assistant message
+        resolved_model = payload.model or "unknown"
+        token_usage_record: dict | None = None
+        if usage_total:
+            token_usage_record = {
+                "prompt": usage_total.get("prompt_tokens", 0),
+                "completion": usage_total.get("completion_tokens", 0),
+                "model": resolved_model,
+                "cost_usd": usage_total.get("cost_usd", 0.0),
+                "purpose": "chat",
+            }
+
         # Save whatever we collected (partial or full).
         if collected:
             full_content = "".join(collected)
@@ -759,6 +808,7 @@ async def chat(
                 tool_calls={"calls": tool_calls_log} if tool_calls_log else None,
                 state_version=current_state.version if current_state else None,
                 model=payload.model,
+                token_usage=token_usage_record,
             )
             try:
                 db.add(assistant_msg)
@@ -903,7 +953,7 @@ async def _generate_session_title(session_id: uuid.UUID, content: str) -> None:
                 ),
             }
         ]
-        response = await llm_service.complete(messages, purpose="general", model_override=None)
+        response, _usage = await llm_service.complete(messages, purpose="general", model_override=None)
         title = response.choices[0].message.content or ""
         title = title.strip().strip('"').strip("'")
         if not title:

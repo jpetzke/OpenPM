@@ -42,6 +42,7 @@ def _make_doc(project_id: uuid.UUID, doc_id: uuid.UUID) -> SimpleNamespace:
         doc_metadata=None,
         summary=None,
         git_commit_hash=None,
+        extraction_token_usage=None,
     )
 
 
@@ -119,8 +120,8 @@ async def _run_process(doc, existing_state_obj, new_state_obj, project_obj,
         patch("app.tasks.pipeline._publish", side_effect=fake_publish),
         patch("app.tasks.pipeline._check_cancel", AsyncMock()),
         patch("app.tasks.pipeline.parse_document", AsyncMock(return_value=("text content", {}, []))),
-        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value="summary")),
-        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value=delta)),
+        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value=("summary", None))),
+        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value=(delta, []))),
         patch("app.tasks.pipeline.git_service.commit_state", return_value="abc123"),
         patch("app.tasks.pipeline.qdrant_service.upsert_chunks", AsyncMock()),
         patch("app.tasks.pipeline.get_active_provider", AsyncMock(return_value=None)),

@@ -1,3 +1,11 @@
+export interface TokenUsage {
+  prompt: number;
+  completion: number;
+  model: string;
+  cost_usd: number;
+  purpose: string;
+}
+
 export interface ChatMessage {
   id: string;
   project_id: string;
@@ -8,6 +16,7 @@ export interface ChatMessage {
   tool_results: Record<string, unknown> | null;
   state_version: number | null;
   model: string | null;
+  token_usage?: TokenUsage | null;
   created_at: string;
 }
 

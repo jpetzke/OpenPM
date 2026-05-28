@@ -163,8 +163,16 @@ _JSON_SCHEMA_SYSTEM_SUFFIX = (
 )
 
 
-async def extract_state_delta(raw_content: str, current_state: dict | None) -> dict:
+async def extract_state_delta(
+    raw_content: str, current_state: dict | None
+) -> tuple[dict, list[dict]]:
+    """Extract state delta from raw content.
+
+    Returns (delta_dict, usage_breakdown) where usage_breakdown is a list of
+    per-call dicts with keys: prompt_tokens, completion_tokens, model, cost_usd, purpose.
+    """
     started = time.perf_counter()
+    usage_breakdown: list[dict] = []
     current_state_json = json.dumps(current_state, default=str) if current_state else "{}"
     user_prompt = _EXTRACTION_USER_TEMPLATE.format(
         current_state_json=current_state_json,
@@ -174,7 +182,9 @@ async def extract_state_delta(raw_content: str, current_state: dict | None) -> d
         {"role": "system", "content": _EXTRACTION_SYSTEM},
         {"role": "user", "content": user_prompt},
     ]
-    response = await llm_service.complete(messages, purpose="document_state_extraction")
+    response, usage = await llm_service.complete(messages, purpose="document_state_extraction")
+    if usage:
+        usage_breakdown.append({**usage, "purpose": "document_state_extraction"})
     content = response.choices[0].message.content or "{}"
 
     try:
@@ -188,7 +198,11 @@ async def extract_state_delta(raw_content: str, current_state: dict | None) -> d
             {"role": "system", "content": _EXTRACTION_SYSTEM + _JSON_SCHEMA_SYSTEM_SUFFIX},
             {"role": "user", "content": user_prompt},
         ]
-        retry_resp = await llm_service.complete(schema_messages, purpose="document_state_extraction")
+        retry_resp, retry_usage = await llm_service.complete(
+            schema_messages, purpose="document_state_extraction"
+        )
+        if retry_usage:
+            usage_breakdown.append({**retry_usage, "purpose": "document_state_extraction_json_retry"})
         retry_content = retry_resp.choices[0].message.content or "{}"
         try:
             parsed = json.loads(_clean_json(retry_content))
@@ -218,9 +232,11 @@ async def extract_state_delta(raw_content: str, current_state: dict | None) -> d
                 ),
             },
         ]
-        retry_response = await llm_service.complete(
+        retry_response, conf_usage = await llm_service.complete(
             reprompt_messages, purpose="document_state_extraction_retry"
         )
+        if conf_usage:
+            usage_breakdown.append({**conf_usage, "purpose": "document_state_extraction_confidence_retry"})
         retry_content = retry_response.choices[0].message.content or "{}"
         try:
             parsed = json.loads(_clean_json(retry_content))
@@ -229,7 +245,10 @@ async def extract_state_delta(raw_content: str, current_state: dict | None) -> d
                 "state_extraction_retry_invalid_json",
                 duration_ms=round((time.perf_counter() - started) * 1000, 2),
             )
-            return {"core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []}, "custom": {}}
+            return (
+                {"core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []}, "custom": {}},
+                usage_breakdown,
+            )
 
     # Tolerant normalise fills any still-missing confidence as "high" (final fallback).
     _normalise_extracted_delta(parsed)
@@ -239,7 +258,7 @@ async def extract_state_delta(raw_content: str, current_state: dict | None) -> d
         core_keys=sorted((parsed.get("core") or {}).keys()),
         dynamic_sections=len(parsed.get("dynamic_sections") or []),
     )
-    return parsed
+    return parsed, usage_breakdown
 
 
 async def parse_document(file_bytes: bytes, mime_type: str) -> tuple[str, dict, list[str]]:
@@ -270,19 +289,24 @@ async def parse_document(file_bytes: bytes, mime_type: str) -> tuple[str, dict, 
         raise RuntimeError(f"Document parsing failed: {exc}") from exc
 
 
-async def summarize_document(raw_content: str) -> str:
+async def summarize_document(raw_content: str) -> tuple[str, dict | None]:
+    """Summarize document content.
+
+    Returns (summary_text, usage_record_or_none).
+    """
     content = raw_content.strip()
     if not content:
-        return ""
+        return "", None
 
-    response = await llm_service.complete(
+    response, usage = await llm_service.complete(
         [
             {"role": "system", "content": _SUMMARY_SYSTEM},
             {"role": "user", "content": content[:12000]},
         ],
         purpose="document_summary",
     )
-    return (response.choices[0].message.content or "").strip()
+    usage_with_purpose = {**usage, "purpose": "document_summary"} if usage else None
+    return (response.choices[0].message.content or "").strip(), usage_with_purpose
 
 
 def _simple_chunk(text: str, max_chars: int, overlap: int) -> list[str]:

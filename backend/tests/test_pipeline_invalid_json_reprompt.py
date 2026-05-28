@@ -12,7 +12,8 @@ def _mock_response(content: str):
     resp = MagicMock()
     resp.choices = [MagicMock()]
     resp.choices[0].message.content = content
-    return resp
+    # complete() now returns (response, usage_or_None)
+    return resp, None
 
 
 VALID_DELTA = '{"core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []}, "custom": {}}'
@@ -31,7 +32,7 @@ async def test_first_bad_second_valid_succeeds():
     with patch("app.services.extraction.llm_service.complete", side_effect=_llm_complete):
         from app.services.extraction import extract_state_delta
 
-        result = await extract_state_delta("some doc content", None)
+        result, _usage = await extract_state_delta("some doc content", None)
 
     assert call_count[0] == 2
     assert isinstance(result, dict)
@@ -59,7 +60,7 @@ async def test_first_valid_no_reprompt():
     with patch("app.services.extraction.llm_service.complete", side_effect=_llm_complete):
         from app.services.extraction import extract_state_delta
 
-        result = await extract_state_delta("some doc content", None)
+        result, _usage = await extract_state_delta("some doc content", None)
 
     assert call_count[0] == 1
     assert isinstance(result, dict)
@@ -79,7 +80,7 @@ async def test_reprompt_includes_schema_in_system():
     with patch("app.services.extraction.llm_service.complete", side_effect=_llm_complete):
         from app.services.extraction import extract_state_delta
 
-        await extract_state_delta("doc", None)
+        await extract_state_delta("doc", None)  # returns (delta, usage) tuple — ignore here
 
     assert call_count[0] == 2
     second_call_messages = captured_messages[1]

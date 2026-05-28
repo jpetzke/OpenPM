@@ -1,10 +1,25 @@
 "use client";
+
 import ReactMarkdown from "react-markdown";
-import type { ChatMessage as ChatMessageType } from "@/types/chat";
+import type { ChatMessage as ChatMessageType, TokenUsage } from "@/types/chat";
 
 interface ChatMessageProps {
   message: ChatMessageType;
   isStreaming?: boolean;
+}
+
+function TokenSubline({ usage }: { usage: TokenUsage }) {
+  const modelLabel = usage.model.split("/").pop() ?? usage.model;
+  const promptK = (usage.prompt / 1000).toFixed(1);
+  const cost = usage.cost_usd.toFixed(4);
+  return (
+    <div
+      className="mt-1.5 text-[11px] font-mono"
+      style={{ color: "var(--text-muted)" }}
+    >
+      {modelLabel} · {promptK}k in · {usage.completion} out · ≈ ${cost}
+    </div>
+  );
 }
 
 export function ChatMessageComponent({ message, isStreaming }: ChatMessageProps) {
@@ -56,6 +71,9 @@ export function ChatMessageComponent({ message, isStreaming }: ChatMessageProps)
                 />
               )}
             </div>
+            {!isStreaming && message.token_usage && (
+              <TokenSubline usage={message.token_usage} />
+            )}
           </div>
         )}
       </div>

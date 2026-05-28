@@ -23,6 +23,7 @@ class ChatMessageResponse(BaseModel):
     state_version: int | None
     model: str | None
     session_id: uuid.UUID | None
+    token_usage: dict | None = None
     created_at: datetime
 
 

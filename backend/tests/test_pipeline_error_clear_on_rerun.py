@@ -74,9 +74,9 @@ async def test_error_fields_cleared_at_run_start():
     redis.publish = AsyncMock()
 
     with (
-        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value={"core": {}})),
+        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value=({"core": {}}, []))),
         patch("app.tasks.pipeline.asyncio.sleep", AsyncMock()),
-        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value="")),
+        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value=("", None))),
         patch("app.tasks.pipeline.parse_document", AsyncMock(return_value=("content", {}, ["chunk"]))),
         patch("app.services.storage.get_document_bytes", MagicMock(return_value=b"bytes")),
         patch("app.tasks.pipeline.merge_state", MagicMock(return_value={})),
@@ -127,9 +127,9 @@ async def test_happy_path_ends_done_with_no_error():
     redis.publish = AsyncMock()
 
     with (
-        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value={"core": {}})),
+        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value=({"core": {}}, []))),
         patch("app.tasks.pipeline.asyncio.sleep", AsyncMock()),
-        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value="")),
+        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value=("", None))),
         patch("app.tasks.pipeline.parse_document", AsyncMock(return_value=("content", {}, ["chunk"]))),
         patch("app.services.storage.get_document_bytes", MagicMock(return_value=b"bytes")),
         patch("app.tasks.pipeline.merge_state", MagicMock(return_value={})),

@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Optional
 
 from pydantic import BaseModel
@@ -14,6 +15,7 @@ class ProjectUpdate(BaseModel):
     name: str | None = None
     client_name: str | None = None
     status: str | None = None
+    monthly_budget_usd: Decimal | None = None
 
 
 class ProjectMemberOut(BaseModel):
@@ -34,6 +36,7 @@ class ProjectResponse(BaseModel):
     briefing_was_truncated: Optional[bool] = None
     briefing_state_version: Optional[int] = None
     briefing_priority_order: Optional[list[str]] = None
+    monthly_budget_usd: Optional[Decimal] = None
     created_at: datetime
     updated_at: datetime
     created_by: uuid.UUID

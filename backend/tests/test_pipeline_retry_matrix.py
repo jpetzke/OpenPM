@@ -136,7 +136,7 @@ async def _run_pipeline_with_llm_error(llm_exc_factory, expected_error_class: st
         call_count_extract[0] += 1
         if call_count_extract[0] <= n_raises:
             raise llm_exc_factory()
-        return {"core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []}}
+        return ({"core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []}}, [])
 
     sleep_calls = []
 
@@ -146,7 +146,7 @@ async def _run_pipeline_with_llm_error(llm_exc_factory, expected_error_class: st
     with (
         patch("app.tasks.pipeline.extract_state_delta", side_effect=_mock_extract),
         patch("app.tasks.pipeline.asyncio.sleep", side_effect=_mock_sleep),
-        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value="")),
+        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value=("", None))),
         patch("app.tasks.pipeline.parse_document", AsyncMock(return_value=("content", {}, ["chunk1"]))),
         patch("app.services.storage.get_document_bytes", MagicMock(return_value=b"bytes")),
         patch("app.tasks.pipeline.merge_state", MagicMock(return_value={})),

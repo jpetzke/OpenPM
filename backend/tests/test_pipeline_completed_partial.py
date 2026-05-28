@@ -75,9 +75,9 @@ async def test_embedding_failure_sets_completed_partial_and_continues():
         return {"core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []}}
 
     with (
-        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value={"core": {}})),
+        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value=({"core": {}}, []))),
         patch("app.tasks.pipeline.asyncio.sleep", AsyncMock()),
-        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value="summary")),
+        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value=("summary", None))),
         patch("app.tasks.pipeline.parse_document", AsyncMock(return_value=("content", {}, ["chunk"]))),
         patch("app.services.storage.get_document_bytes", MagicMock(return_value=b"bytes")),
         patch("app.tasks.pipeline.merge_state", side_effect=_merge_state),
@@ -137,9 +137,9 @@ async def test_embedding_failure_all_retries_exhausted():
         raise RuntimeError("always fails")
 
     with (
-        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value={"core": {}})),
+        patch("app.tasks.pipeline.extract_state_delta", AsyncMock(return_value=({"core": {}}, []))),
         patch("app.tasks.pipeline.asyncio.sleep", AsyncMock()),
-        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value="")),
+        patch("app.tasks.pipeline.summarize_document", AsyncMock(return_value=("", None))),
         patch("app.tasks.pipeline.parse_document", AsyncMock(return_value=("content", {}, ["chunk"]))),
         patch("app.services.storage.get_document_bytes", MagicMock(return_value=b"bytes")),
         patch("app.tasks.pipeline.merge_state", MagicMock(return_value={})),

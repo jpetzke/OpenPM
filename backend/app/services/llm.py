@@ -2,17 +2,29 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 import time
-from typing import Any
+from typing import Any, TypedDict
 
 import structlog
 from openai import AsyncOpenAI, APIStatusError, APITimeoutError, RateLimitError
 
+from app.agent_config import estimate_cost_usd
 from app.schemas.provider_config import ModelRole
 from app.services.provider_resolver import (
     build_llm_client,
     candidate_models,
     require_active_provider,
 )
+
+
+class UsageRecord(TypedDict):
+    prompt_tokens: int
+    completion_tokens: int
+    model: str
+    cost_usd: float
+
+
+class BudgetExceededError(Exception):
+    """Raised when a project's monthly budget has been exhausted."""
 
 
 class LLMError(Exception):
@@ -81,7 +93,13 @@ async def complete(
     tools: list[dict] | None = None,
     purpose: str = "general",
     model_override: str | None = None,
-) -> Any:
+) -> tuple[Any, UsageRecord | None]:
+    """Call LLM and return (response, usage_record).
+
+    The response object is the raw OpenAI response (callers access
+    response.choices[0].message.content).  The usage_record contains
+    token counts + estimated cost or None if the provider didn't report usage.
+    """
     client, candidates = await _client_and_candidates(purpose, model_override)
     last_exc: Exception | None = None
 
@@ -117,14 +135,27 @@ async def complete(
             typed = _wrap_openai_exc(exc)
             log.error("llm_complete_failed", purpose=purpose, model=model, error=str(exc))
             raise typed
+        usage_record: UsageRecord | None = None
+        if response.usage:
+            pt = response.usage.prompt_tokens or 0
+            ct = response.usage.completion_tokens or 0
+            usage_record = UsageRecord(
+                prompt_tokens=pt,
+                completion_tokens=ct,
+                model=model,
+                cost_usd=estimate_cost_usd(model, pt, ct),
+            )
         log.info(
             "llm_complete_finished",
             purpose=purpose,
             model=model,
             duration_ms=round((time.perf_counter() - started) * 1000, 2),
             finish_reason=response.choices[0].finish_reason if response.choices else None,
+            prompt_tokens=usage_record["prompt_tokens"] if usage_record else None,
+            completion_tokens=usage_record["completion_tokens"] if usage_record else None,
+            cost_usd=usage_record["cost_usd"] if usage_record else None,
         )
-        return response
+        return response, usage_record
 
     if last_exc is not None:
         raise last_exc
@@ -211,6 +242,8 @@ async def agent_round(
     Yields:
       {"type": "content_delta", "delta": str}   — text chunk for the user
       {"type": "tool_calls", "calls": [...]}     — after stream ends, if tools were invoked
+      {"type": "usage", "prompt_tokens": int, "completion_tokens": int,
+       "model": str, "cost_usd": float}          — after stream ends, if usage available
 
     Calls structure: [{"id": str, "name": str, "arguments": str}, ...]
     """
@@ -259,9 +292,27 @@ async def agent_round(
                                 if tc.function.arguments:
                                     accumulated_tool_calls[idx]["arguments"] += tc.function.arguments
 
+                # After stream closes, try to get final usage from the context manager
+                try:
+                    final_completion = await s.get_final_completion()
+                    raw_usage = final_completion.usage if final_completion else None
+                except Exception:
+                    raw_usage = None
+
             if has_tool_calls:
                 calls = [accumulated_tool_calls[i] for i in sorted(accumulated_tool_calls)]
                 yield {"type": "tool_calls", "calls": calls}
+
+            if raw_usage:
+                pt = raw_usage.prompt_tokens or 0
+                ct = raw_usage.completion_tokens or 0
+                yield {
+                    "type": "usage",
+                    "prompt_tokens": pt,
+                    "completion_tokens": ct,
+                    "model": model,
+                    "cost_usd": estimate_cost_usd(model, pt, ct),
+                }
 
             log.info(
                 "llm_agent_round_finished",

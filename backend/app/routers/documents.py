@@ -637,7 +637,7 @@ async def replace_document(
         remove_document_source(simulated_base, str(doc_id))
 
         raw_text, _meta, _chunks = await parse_document(file_bytes, mime_type)
-        delta = await extract_state_delta(raw_text, simulated_base)
+        delta, _extract_usage = await extract_state_delta(raw_text, simulated_base)
 
         new_doc_id_sim = str(uuid.uuid4())
         simulated_new = merge_state(simulated_base, delta, document_id=new_doc_id_sim)

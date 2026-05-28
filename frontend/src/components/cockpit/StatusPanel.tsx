@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
 import { nextDeadline, formatDeadline } from "@/lib/deadlines";
 import { StateDetailModal } from "./StateDetailModal";
+import { useUsage } from "@/hooks/useUsage";
 import type { ProjectState } from "@/types/state";
 
 function useFlashOnChange(version: number | undefined) {
@@ -65,7 +66,12 @@ export function StatusPanel({ projectId }: Props) {
     retry: false,
   });
 
+  const { data: usageData } = useUsage(projectId, "today");
+
   const hasState = !!stateData?.state?.core;
+  const todayCost = usageData?.total?.cost_usd ?? null;
+  const budgetUsd = usageData?.budget_usd ?? null;
+  const budgetPct = usageData?.budget_used_pct ?? null;
 
   return (
     <section
@@ -133,6 +139,55 @@ export function StatusPanel({ projectId }: Props) {
           projectId={projectId}
           onClose={() => setDetailOpen(false)}
         />
+      )}
+
+      {todayCost !== null && (
+        <div
+          className="mt-3 pt-3 flex flex-col gap-1.5"
+          style={{ borderTop: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center justify-between text-[12px]">
+            <span style={{ color: "var(--text-muted)" }}>Verbrauch heute</span>
+            <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
+              ${todayCost.toFixed(4)}
+            </span>
+          </div>
+          {budgetUsd && budgetPct !== null && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between text-[11px]">
+                <span style={{ color: "var(--text-muted)" }}>
+                  MTD: ${usageData?.month_to_date_cost_usd?.toFixed(2)} / ${budgetUsd.toFixed(2)}
+                </span>
+                <span
+                  style={{
+                    color: budgetPct >= 80
+                      ? budgetPct >= 100 ? "var(--danger)" : "var(--warning)"
+                      : "var(--text-muted)",
+                    fontWeight: 500,
+                  }}
+                >
+                  {budgetPct.toFixed(0)}%
+                </span>
+              </div>
+              <div
+                className="h-1 rounded-full overflow-hidden"
+                style={{ background: "var(--bg-elevated)" }}
+              >
+                <div
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{
+                    width: `${Math.min(budgetPct, 100)}%`,
+                    background: budgetPct >= 100
+                      ? "var(--danger)"
+                      : budgetPct >= 80
+                        ? "var(--warning)"
+                        : "var(--accent)",
+                  }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </section>
   );

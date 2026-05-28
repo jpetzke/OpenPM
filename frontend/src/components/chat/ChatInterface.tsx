@@ -202,7 +202,9 @@ export function ChatInterface({
               <p className="font-medium" style={{ color: "var(--danger)" }}>
                 {lastError.code === "provider_config_corrupt"
                   ? "Provider-Konfiguration korrupt"
-                  : "Chat-Antwort fehlgeschlagen"}
+                  : lastError.code === "budget_exceeded"
+                    ? "Monats-Budget aufgebraucht"
+                    : "Chat-Antwort fehlgeschlagen"}
               </p>
               <p className="mt-1" style={{ color: "var(--text-secondary)" }}>{lastError.message}</p>
               {lastError.code === "provider_config_corrupt" && (
@@ -214,15 +216,27 @@ export function ChatInterface({
                   <SettingsIcon size={12} /> Provider neu konfigurieren
                 </Link>
               )}
+              {lastError.code === "budget_exceeded" && (
+                <Link
+                  href={`/projects/${projectId}/usage`}
+                  className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium transition-default hover:underline"
+                  style={{ color: "var(--accent)" }}
+                >
+                  Budget erhöhen →
+                </Link>
+              )}
             </div>
-            <button
-              onClick={clearError}
-              className="shrink-0 p-1 rounded transition-default hover:opacity-100"
-              style={{ opacity: 0.6, color: "var(--text-muted)" }}
-              aria-label="Fehler schließen"
-            >
-              <X size={14} />
-            </button>
+            {/* budget_exceeded banner is non-dismissable */}
+            {lastError.code !== "budget_exceeded" && (
+              <button
+                onClick={clearError}
+                className="shrink-0 p-1 rounded transition-default hover:opacity-100"
+                style={{ opacity: 0.6, color: "var(--text-muted)" }}
+                aria-label="Fehler schließen"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
         )}
         {allMessages.length === 0 && !streaming && !sending && !noActiveProvider && !hideInput && (

@@ -377,6 +377,13 @@ export function useProjectSSE(projectId: string) {
           return;
         }
 
+        case "budget_warning": {
+          const spent = (data.spent_usd as number | undefined)?.toFixed(2) ?? "?";
+          const budget = (data.budget_usd as number | undefined)?.toFixed(2) ?? "?";
+          toast.warning(`80 % des Monats-Budgets erreicht ($${spent} von $${budget})`);
+          return;
+        }
+
         default:
           return;
       }

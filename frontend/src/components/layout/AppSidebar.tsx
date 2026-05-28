@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Plus, LogOut, Loader2, Settings } from "lucide-react";
+import { Plus, LogOut, Loader2, Settings, BarChart2 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
@@ -117,6 +117,20 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
             {user?.name || user?.email || "—"}
           </p>
         </div>
+        {currentProjectId && (
+          <Link
+            href={`/projects/${currentProjectId}/usage`}
+            className="p-1 rounded transition-default hover:opacity-70"
+            aria-label="Verbrauch"
+          >
+            <BarChart2
+              size={14}
+              style={{
+                color: pathname.includes("/usage") ? "var(--accent)" : "var(--text-muted)",
+              }}
+            />
+          </Link>
+        )}
         <Link
           href="/settings"
           className="p-1 rounded transition-default hover:opacity-70"

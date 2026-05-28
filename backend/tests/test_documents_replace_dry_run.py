@@ -69,7 +69,7 @@ async def test_dry_run_returns_diff_without_state_mutation():
 
     with (
         patch("app.services.extraction.parse_document", AsyncMock(return_value=("New content", {}, []))),
-        patch("app.services.extraction.extract_state_delta", AsyncMock(return_value=new_delta)),
+        patch("app.services.extraction.extract_state_delta", AsyncMock(return_value=(new_delta, []))),
         patch("app.routers.documents.get_active_provider", AsyncMock(return_value=MagicMock())),
     ):
         result = await replace_document(

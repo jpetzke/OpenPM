@@ -89,6 +89,7 @@ async def test_complete_falls_back_to_next_model_on_rate_limit():
 
     good_response = MagicMock()
     good_response.choices = [MagicMock(finish_reason="stop")]
+    good_response.usage = None  # no usage data
 
     call_count = 0
 
@@ -112,9 +113,10 @@ async def test_complete_falls_back_to_next_model_on_rate_limit():
     ):
         from app.services.llm import complete
 
-        result = await complete([{"role": "user", "content": "hi"}])
+        response, usage = await complete([{"role": "user", "content": "hi"}])
 
-    assert result is good_response
+    assert response is good_response
+    assert usage is None  # no usage data on the mock
     assert call_count == 2
 
 

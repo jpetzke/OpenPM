@@ -522,11 +522,29 @@ async def _process(
                 backoffs=backoffs,
             )
 
-        summary_text, delta = await asyncio.gather(
+        (summary_text, summary_usage), (delta, extract_usage_breakdown) = await asyncio.gather(
             summarize_document(raw_content),
             _extract_with_llm_retry(),
         )
         doc.summary = summary_text
+
+        # Build extraction_token_usage breakdown for the document
+        all_usage: list[dict] = []
+        if summary_usage:
+            all_usage.append(summary_usage)
+        if extract_usage_breakdown:
+            all_usage.extend(extract_usage_breakdown)
+        if all_usage:
+            prompt_total = sum(u.get("prompt_tokens", 0) for u in all_usage)
+            completion_total = sum(u.get("completion_tokens", 0) for u in all_usage)
+            cost_total = sum(u.get("cost_usd", 0.0) for u in all_usage)
+            doc.extraction_token_usage = {
+                "prompt_total": prompt_total,
+                "completion_total": completion_total,
+                "cost_total_usd": cost_total,
+                "breakdown": all_usage,
+            }
+
         await db.flush()
         await _log_pipeline(
             db, redis, channel, doc,
@@ -536,6 +554,7 @@ async def _process(
                 "summary_length": len(summary_text or ""),
                 "dynamic_sections": len((delta or {}).get("dynamic_sections") or []),
                 "custom_keys": sorted(((delta or {}).get("custom") or {}).keys()),
+                "extraction_cost_usd": doc.extraction_token_usage.get("cost_total_usd") if doc.extraction_token_usage else None,
             },
         )
 

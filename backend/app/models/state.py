@@ -103,4 +103,5 @@ class ChatMessage(Base):
         UUID(as_uuid=True), ForeignKey("chat_sessions.id", ondelete="SET NULL"), nullable=True
     )
     model: Mapped[str | None] = mapped_column(String, nullable=True)
+    token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
