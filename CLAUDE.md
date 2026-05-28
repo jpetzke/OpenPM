@@ -145,3 +145,43 @@ Embeddings can be disabled at runtime via the app settings endpoint which writes
 ## Testing Conventions
 
 Tests use `pytest-asyncio` with `asyncio_mode = "auto"` (no `@pytest.mark.asyncio` needed). Tests mock external services (LLM, Qdrant, Redis) — there is no integration test infra that requires running services. The `conftest.py` is minimal; fixtures are defined close to where they're used.
+
+## Multi-Section Sweep Protocol (MANDATORY)
+
+Lessons from the J/K/L sweep are baked in here. Read before dispatching subagents for multi-section work.
+
+### Default: serial dispatch with commit between sections
+
+When sections touch shared files (`pipeline.py`, `models/*.py`, `routers/documents.py`, `routers/chat.py`, `schemas/*.py`, any frontend file under `components/upload/`, `components/cockpit/`), dispatch **one subagent at a time**, commit before the next. Parallel is the exception, not the default. Per-section walltime is ~15–25 min; serial of 3 = ~1 h with zero merge cost.
+
+### Parallel dispatch — only with these guard rails
+
+1. **Verify worktree base before any subagent does real work.** `Agent isolation: worktree` may spawn off stale HEAD (observed: 6-day-old base). Immediately after spawn, run `git -C <worktree-path> log -1 --pretty=%H` and compare to `git rev-parse HEAD` of main. **Abort + redispatch if mismatch.**
+2. **Hand the subagent the expected alembic head SHA** in the prompt. Subagent must `alembic current` first; if it doesn't match, abort with explicit error before writing files.
+3. **Migration numbering**: tell each agent the exact `revision` + `down_revision` strings up-front. Don't let them auto-pick. Linear chain only — no branches.
+4. **No two parallel agents on the same file.** Partition by file path in the prompts. If shared file is unavoidable → serial.
+5. **Worktree cleanup**: after merge, `git worktree remove -f -f <path>` + `git branch -D <branch>`. Locked worktrees need `-f -f`.
+
+### Subagent prompt — required sections
+
+Every subagent prompt for backend+frontend work must include:
+
+- **Render-tree verification step.** Subagent must grep that every new model column appears in the matching `*Response` Pydantic schema **and** in the response-builder function (e.g. `_project_response()`, `_document_to_response()`), AND that the matching TS type in `frontend/src/types/` is extended. Skip = silent serialization gap (J/K/L lost 25 min to this).
+- **Alembic head check before write.** `alembic current` must equal the expected revision (passed in prompt) before writing migration.
+- **Container-impact note.** New npm/pip deps must include explicit instruction: "after adding to package.json/pyproject.toml, run `podman exec openpm-frontend-1 npm install` (or backend equivalent) — the container's `node_modules` is a bind-mounted volume and ignores host-level installs."
+
+### Post-merge validation gate
+
+Before claiming "done":
+1. `podman exec openpm-backend-1 alembic current` returns expected head.
+2. Live API smoke: for every new column/field, `curl` an endpoint and assert the field serializes (not `null` unless intentional). Bash one-liner per field; ~5 min total.
+3. Frontend: `podman exec openpm-frontend-1 rm -rf /app/.next` + restart container if any UI file was touched (Turbopack HMR is unreliable for cross-file refactors — see [[feedback_container-restart-after-refactor]]).
+4. Playwright smoke spec for the new sections (one spec per section letter, lightweight DOM assertions, not pixel checks).
+
+### Anti-patterns observed in J/K/L (do not repeat)
+
+- Dispatching K + L in parallel worktrees without verifying base → 5-file merge conflict.
+- Trusting subagent "lint clean, tests pass" without checking that response-builder picks up new columns → API returned `null` for J briefing meta + K extraction_token_usage despite DB rows being correct.
+- Skipping container restart after frontend code change → stale DropZone served for ~30 min.
+- `npm install` on host without re-running inside container → `recharts: Module not found`.
+- Polling-loop scripts that re-login on each iteration → 50+ junk auth requests in logs.
