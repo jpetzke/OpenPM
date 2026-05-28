@@ -8,6 +8,7 @@ import pytest
 
 from app.services.llm import LLMRateLimit, LLMServerError, LLMTimeout
 from app.tasks.pipeline import _RETRY_MATRIX, _step_with_retry
+from app.services.briefing import BriefingResult
 
 
 async def test_step_with_retry_succeeds_on_first():
@@ -152,7 +153,7 @@ async def _run_pipeline_with_llm_error(llm_exc_factory, expected_error_class: st
         patch("app.tasks.pipeline.compute_delta", MagicMock(return_value={})),
         patch("app.tasks.pipeline.git_service.commit_state", MagicMock(return_value="abc")),
         patch("app.tasks.pipeline.qdrant_service.upsert_chunks", AsyncMock()),
-        patch("app.tasks.pipeline.briefing_service.render_briefing", MagicMock(return_value="")),
+        patch("app.tasks.pipeline.briefing_service.render_briefing", MagicMock(return_value=BriefingResult(text="briefing", token_count=5, was_truncated=False))),
         patch("app.tasks.pipeline.change_session_service.get_or_open", AsyncMock(return_value=MagicMock(id=uuid.uuid4()))),
         patch("app.tasks.pipeline.get_active_provider", AsyncMock(return_value=MagicMock())),
         patch("app.tasks.pipeline.async_session_factory", MagicMock()),

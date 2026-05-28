@@ -1,5 +1,6 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel
 
@@ -29,6 +30,10 @@ class ProjectResponse(BaseModel):
     client_name: str
     status: str
     compiled_briefing: str | None
+    briefing_token_count: Optional[int] = None
+    briefing_was_truncated: Optional[bool] = None
+    briefing_state_version: Optional[int] = None
+    briefing_priority_order: Optional[list[str]] = None
     created_at: datetime
     updated_at: datetime
     created_by: uuid.UUID

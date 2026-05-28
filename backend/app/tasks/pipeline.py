@@ -710,9 +710,17 @@ async def _process(
                 backoffs=embed_backoffs,
             )
 
-        async def _briefing_task() -> str | None:
+        async def _briefing_task() -> briefing_service.BriefingResult | None:
             if project is None:
                 return None
+            # Cache skip: if briefing was already rendered for this state version, skip
+            if (
+                project.briefing_state_version == new_version
+                and project.compiled_briefing
+            ):
+                log.info("briefing_cached", project_id=str(project_id), state_version=new_version)
+                return None  # None signals "cached, skip update"
+            priority_order = project.briefing_priority_order or None
             return briefing_service.render_briefing(
                 {
                     "name": project.name,
@@ -724,9 +732,10 @@ async def _process(
                 new_version,
                 cl_dicts,
                 documents_by_id=documents_by_id,
+                priority_order=priority_order,
             )
 
-        embed_result, briefing_text = await asyncio.gather(
+        embed_result, briefing_result = await asyncio.gather(
             _embed_task(), _briefing_task(), return_exceptions=True
         )
         embed_failed = isinstance(embed_result, BaseException)
@@ -742,10 +751,17 @@ async def _process(
             doc.error_class = "embedding_failed"
             doc.processing_error = str(embed_result)
 
-        if isinstance(briefing_text, BaseException):
-            briefing_text = None
-        if briefing_text is not None and project is not None:
-            project.compiled_briefing = briefing_text
+        briefing_cached = False
+        if isinstance(briefing_result, BaseException):
+            briefing_result = None
+        if briefing_result is None and project is not None and project.briefing_state_version == new_version:
+            # None from cached path
+            briefing_cached = True
+        if briefing_result is not None and project is not None:
+            project.compiled_briefing = briefing_result.text
+            project.briefing_token_count = briefing_result.token_count
+            project.briefing_was_truncated = briefing_result.was_truncated
+            project.briefing_state_version = new_version
         await _log_pipeline(
             db, redis, channel, doc,
             step=8, label="enrich", status="done",
@@ -753,7 +769,8 @@ async def _process(
             meta={
                 "embedded": embedded,
                 "embed_failed": embed_failed,
-                "briefing_updated": briefing_text is not None,
+                "briefing_updated": briefing_result is not None,
+                "briefing_cached": briefing_cached,
             },
         )
 

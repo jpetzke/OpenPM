@@ -31,6 +31,31 @@ export function BriefingPanel({ projectId }: Props) {
         >
           Briefing
         </span>
+        <div className="flex items-center gap-1.5">
+          {project?.briefing_token_count != null && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded"
+              style={{
+                color: "var(--text-muted)",
+                background: "var(--bg-elevated)",
+              }}
+            >
+              {project.briefing_token_count} Token
+            </span>
+          )}
+          {project?.briefing_was_truncated && (
+            <span
+              className="text-xs px-1.5 py-0.5 rounded cursor-default"
+              title="Briefing wurde auf Token-Budget gekürzt — Priorität ist konfigurierbar in Settings."
+              style={{
+                color: "var(--warning)",
+                background: "var(--warning-subtle)",
+              }}
+            >
+              gekürzt
+            </span>
+          )}
+        </div>
       </header>
 
       {isLoading ? (

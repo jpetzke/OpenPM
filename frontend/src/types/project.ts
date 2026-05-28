@@ -10,6 +10,10 @@ export interface Project {
   client_name: string;
   status: string;
   compiled_briefing: string | null;
+  briefing_token_count: number | null;
+  briefing_was_truncated: boolean | null;
+  briefing_state_version: number | null;
+  briefing_priority_order: string[] | null;
   created_at: string;
   updated_at: string;
   created_by: string;

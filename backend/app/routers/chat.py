@@ -448,18 +448,24 @@ async def _update_task_status(
     proj_result = await db.execute(select(Project).where(Project.id == project_id))
     project = proj_result.scalar_one_or_none()
     if project:
-        briefing_text = briefing_service.render_briefing(
-            {
-                "name": project.name,
-                "client_name": project.client_name,
-                "status": project.status,
-                "updated_at": project.updated_at.isoformat(),
-            },
-            new_state_data,
-            new_version,
-            [{"to_version": new_version, "triggered_by": "chat_tool"}],
-        )
-        project.compiled_briefing = briefing_text
+        # Cache skip: new_version was just created, so briefing_state_version != new_version
+        if project.briefing_state_version != new_version or not project.compiled_briefing:
+            briefing_result = briefing_service.render_briefing(
+                {
+                    "name": project.name,
+                    "client_name": project.client_name,
+                    "status": project.status,
+                    "updated_at": project.updated_at.isoformat(),
+                },
+                new_state_data,
+                new_version,
+                [{"to_version": new_version, "triggered_by": "chat_tool"}],
+                priority_order=project.briefing_priority_order or None,
+            )
+            project.compiled_briefing = briefing_result.text
+            project.briefing_token_count = briefing_result.token_count
+            project.briefing_was_truncated = briefing_result.was_truncated
+            project.briefing_state_version = new_version
 
     await db.commit()
 

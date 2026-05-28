@@ -19,6 +19,7 @@ from app.tasks import pipeline
 from app.models.state import ProjectState, StateChangelog
 from app.models.project import Project
 from app.models.document import Document
+from app.services.briefing import BriefingResult
 
 
 def _make_doc(project_id: uuid.UUID, doc_id: uuid.UUID) -> SimpleNamespace:
@@ -124,7 +125,7 @@ async def _run_process(doc, existing_state_obj, new_state_obj, project_obj,
         patch("app.tasks.pipeline.qdrant_service.upsert_chunks", AsyncMock()),
         patch("app.tasks.pipeline.get_active_provider", AsyncMock(return_value=None)),
         patch("app.tasks.pipeline.change_session_service.get_or_open", AsyncMock(return_value=session_obj)),
-        patch("app.tasks.pipeline.briefing_service.render_briefing", return_value="briefing"),
+        patch("app.tasks.pipeline.briefing_service.render_briefing", return_value=BriefingResult(text="briefing", token_count=5, was_truncated=False)),
         patch("app.services.storage.get_document_bytes", return_value=b"bytes"),
     ):
         await pipeline._process(db, redis, doc_id, project_id)
@@ -159,6 +160,8 @@ async def test_state_changed_event_published_with_correct_sections():
     project_obj = SimpleNamespace(
         id=project_id, name="Test", client_name="Client", status="active",
         updated_at=datetime.now(timezone.utc), compiled_briefing=None,
+        briefing_state_version=None, briefing_priority_order=None,
+        briefing_token_count=None, briefing_was_truncated=None,
     )
 
     published_events = await _run_process(
@@ -206,6 +209,8 @@ async def test_state_changed_event_omitted_sections_when_empty():
     project_obj = SimpleNamespace(
         id=project_id, name="T", client_name="C", status="active",
         updated_at=datetime.now(timezone.utc), compiled_briefing=None,
+        briefing_state_version=None, briefing_priority_order=None,
+        briefing_token_count=None, briefing_was_truncated=None,
     )
 
     published_events = await _run_process(

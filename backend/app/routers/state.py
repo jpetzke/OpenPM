@@ -165,13 +165,18 @@ async def update_task_status(
     changelog_dicts = [{"to_version": c.to_version, "triggered_by": c.triggered_by} for c in recent_changelog]
 
     if project:
-        briefing_text = briefing_service.render_briefing(
-            {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": project.updated_at.isoformat()},
-            new_state_data,
-            new_version,
-            changelog_dicts,
-        )
-        project.compiled_briefing = briefing_text
+        if project.briefing_state_version != new_version or not project.compiled_briefing:
+            briefing_result = briefing_service.render_briefing(
+                {"name": project.name, "client_name": project.client_name, "status": project.status, "updated_at": project.updated_at.isoformat()},
+                new_state_data,
+                new_version,
+                changelog_dicts,
+                priority_order=project.briefing_priority_order or None,
+            )
+            project.compiled_briefing = briefing_result.text
+            project.briefing_token_count = briefing_result.token_count
+            project.briefing_was_truncated = briefing_result.was_truncated
+            project.briefing_state_version = new_version
         await db.commit()
 
     return new_state_obj

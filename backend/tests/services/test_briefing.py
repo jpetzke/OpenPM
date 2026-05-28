@@ -20,11 +20,11 @@ def test_render_basic_briefing():
         "custom": {},
     }
     result = render_briefing(project, state, 3, [])
-    assert "Test Project" in result
-    assert "ACME" in result
-    assert "Fix bug" in result
-    assert "Alice" in result
-    assert "Use FastAPI" in result
+    assert "Test Project" in result.text
+    assert "ACME" in result.text
+    assert "Fix bug" in result.text
+    assert "Alice" in result.text
+    assert "Use FastAPI" in result.text
 
 
 def test_render_excludes_done_tasks():
@@ -41,8 +41,8 @@ def test_render_excludes_done_tasks():
         "custom": {},
     }
     result = render_briefing(project, state, 1, [])
-    assert "Done task" not in result
-    assert "Open task" in result
+    assert "Done task" not in result.text
+    assert "Open task" in result.text
 
 
 def test_render_with_changelog():
@@ -50,4 +50,4 @@ def test_render_with_changelog():
     state = {"core": {"contacts": [], "open_tasks": [], "deadlines": [], "decisions": [], "blockers": []}, "custom": {}}
     changelog = [{"to_version": 2, "triggered_by": "pipeline"}, {"to_version": 3, "triggered_by": "chat_tool"}]
     result = render_briefing(project, state, 3, changelog)
-    assert "pipeline" in result
+    assert "pipeline" in result.text

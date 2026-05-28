@@ -35,7 +35,8 @@ def test_renders_source_line_for_task():
         "custom": {},
     }
     docs = {"doc-A": _doc("doc-A", "notes.txt")}
-    out = render_briefing(_project_dict(), state, 1, [], documents_by_id=docs)
+    _result = render_briefing(_project_dict(), state, 1, [], documents_by_id=docs)
+    out = _result.text
     assert "Do thing" in out
     assert "Quelle: notes.txt" in out
 
@@ -54,7 +55,8 @@ def test_chat_source_renders_aus_chat():
         "dynamic_sections": [],
         "custom": {},
     }
-    out = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    _result = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    out = _result.text
     assert "aus Chat" in out
 
 
@@ -72,7 +74,8 @@ def test_legacy_source_renders_special_marker():
         "dynamic_sections": [],
         "custom": {},
     }
-    out = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    _result = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    out = _result.text
     assert "Quelle vor Migration verloren" in out
 
 
@@ -90,7 +93,8 @@ def test_manual_source_renders_manuell():
         "dynamic_sections": [],
         "custom": {},
     }
-    out = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    _result = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    out = _result.text
     assert "manuell" in out
 
 
@@ -109,7 +113,8 @@ def test_multiple_sources_comma_joined():
         "custom": {},
     }
     docs = {"doc-A": _doc("doc-A", "a.txt"), "doc-B": _doc("doc-B", "b.txt")}
-    out = render_briefing(_project_dict(), state, 1, [], documents_by_id=docs)
+    _result = render_briefing(_project_dict(), state, 1, [], documents_by_id=docs)
+    out = _result.text
     assert "Quelle: a.txt, b.txt" in out
 
 
@@ -133,7 +138,8 @@ def test_conflicts_section_rendered_when_present():
             }
         ],
     }
-    out = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    _result = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    out = _result.text
     assert "Konflikte" in out
     assert "Budget" in out
     assert "amount: 10k (aus doc-a.txt) vs 20k (aus doc-b.txt)" in out
@@ -145,7 +151,8 @@ def test_no_conflicts_section_when_empty():
         "dynamic_sections": [],
         "custom": {},
     }
-    out = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    _result = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    out = _result.text
     assert "Konflikte" not in out
 
 
@@ -163,7 +170,8 @@ def test_unknown_source_id_renders_raw():
         "dynamic_sections": [],
         "custom": {},
     }
-    out = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    _result = render_briefing(_project_dict(), state, 1, [], documents_by_id={})
+    out = _result.text
     assert "Quelle: doc-missing" in out
 
 
@@ -187,6 +195,7 @@ def test_decision_with_sources_renders_source_line():
         "custom": {},
     }
     docs = {"doc-A": _doc("doc-A", "decision.md")}
-    out = render_briefing(_project_dict(), state, 1, [], documents_by_id=docs)
+    _result = render_briefing(_project_dict(), state, 1, [], documents_by_id=docs)
+    out = _result.text
     assert "Use Postgres" in out
     assert "Quelle: decision.md" in out

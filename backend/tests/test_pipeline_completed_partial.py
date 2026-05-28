@@ -5,6 +5,7 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from app.services.briefing import BriefingResult
 
 
 def _make_doc(doc_id: uuid.UUID, project_id: uuid.UUID):
@@ -65,7 +66,7 @@ async def test_embedding_failure_sets_completed_partial_and_continues():
 
     def _render_briefing(*args, **kwargs):
         briefing_rendered[0] = True
-        return "compiled briefing text"
+        return BriefingResult(text="briefing", token_count=5, was_truncated=False)
 
     merge_called = [False]
 
@@ -145,7 +146,7 @@ async def test_embedding_failure_all_retries_exhausted():
         patch("app.tasks.pipeline.compute_delta", MagicMock(return_value={})),
         patch("app.tasks.pipeline.git_service.commit_state", MagicMock(return_value="abc")),
         patch("app.tasks.pipeline.qdrant_service.upsert_chunks", side_effect=_always_fail_embed),
-        patch("app.tasks.pipeline.briefing_service.render_briefing", MagicMock(return_value="")),
+        patch("app.tasks.pipeline.briefing_service.render_briefing", MagicMock(return_value=BriefingResult(text="briefing", token_count=5, was_truncated=False))),
         patch("app.tasks.pipeline.change_session_service.get_or_open", AsyncMock(return_value=MagicMock(id=uuid.uuid4()))),
         patch("app.tasks.pipeline.get_active_provider", AsyncMock(return_value=MagicMock())),
         patch("app.tasks.pipeline.text", MagicMock(return_value=MagicMock())),

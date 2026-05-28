@@ -1,8 +1,9 @@
 import uuid
 from datetime import datetime
+from typing import Optional
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -21,6 +22,10 @@ class Project(Base):
     client_name: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="active")
     compiled_briefing: Mapped[str | None] = mapped_column(Text, nullable=True)
+    briefing_priority_order: Mapped[Optional[list[str]]] = mapped_column(JSONB, nullable=True)
+    briefing_token_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    briefing_was_truncated: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, default=False)
+    briefing_state_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)

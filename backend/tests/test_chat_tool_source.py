@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.routers.chat import _append_chat_source, _update_task_status
+from app.services.briefing import BriefingResult
 
 
 # ---------------------------------------------------------------------------
@@ -63,6 +64,10 @@ def _build_db_with_state(initial_state: dict) -> tuple[MagicMock, list]:
         name="P", client_name="C", status="active",
         updated_at=SimpleNamespace(isoformat=lambda: "2026-05-22T00:00:00"),
         compiled_briefing=None,
+        briefing_state_version=None,
+        briefing_priority_order=None,
+        briefing_token_count=None,
+        briefing_was_truncated=None,
     )
 
     added: list = []
@@ -98,7 +103,7 @@ async def test_update_task_status_appends_chat_source_to_task():
     db, added = _build_db_with_state(initial)
 
     with patch("app.routers.chat.git_service.commit_state", return_value="hash-1"), \
-         patch("app.routers.chat.briefing_service.render_briefing", return_value="briefing"):
+         patch("app.routers.chat.briefing_service.render_briefing", return_value=BriefingResult(text="briefing", token_count=5, was_truncated=False)):
         result = await _update_task_status(
             {"task_id": task_id, "status": "done"},
             project_id, db, redis_client=None, session_id=session_id,
@@ -138,7 +143,7 @@ async def test_update_task_status_dedupes_chat_source_on_second_call():
     db, added = _build_db_with_state(initial)
 
     with patch("app.routers.chat.git_service.commit_state", return_value="hash-2"), \
-         patch("app.routers.chat.briefing_service.render_briefing", return_value="briefing"):
+         patch("app.routers.chat.briefing_service.render_briefing", return_value=BriefingResult(text="briefing", token_count=5, was_truncated=False)):
         await _update_task_status(
             {"task_id": task_id, "status": "blocked"},
             project_id, db, redis_client=None, session_id=session_id,
@@ -166,7 +171,7 @@ async def test_update_task_status_without_session_id_does_not_add_chat_source():
     db, added = _build_db_with_state(initial)
 
     with patch("app.routers.chat.git_service.commit_state", return_value="hash-3"), \
-         patch("app.routers.chat.briefing_service.render_briefing", return_value="briefing"):
+         patch("app.routers.chat.briefing_service.render_briefing", return_value=BriefingResult(text="briefing", token_count=5, was_truncated=False)):
         await _update_task_status(
             {"task_id": task_id, "status": "done"},
             project_id, db, redis_client=None, session_id=None,
