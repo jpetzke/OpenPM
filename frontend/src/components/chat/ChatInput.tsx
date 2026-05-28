@@ -194,7 +194,7 @@ export function ChatInput({
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".pdf,.txt,.md,.markdown,.csv,.docx,.doc,.xlsx,.xls,.rtf,.json,.html,.htm,.log,image/*"
+              accept=".pdf,.txt,.md,.markdown,.csv,.docx,.doc,.xlsx,.xls,.rtf,.json,.html,.htm,.log,.eml,.png,.jpg,.jpeg,.webp,.mp3,.m4a,.wav,.ogg,image/*"
               onChange={onPick}
               className="sr-only"
               data-testid="chat-attach-input"

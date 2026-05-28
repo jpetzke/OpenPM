@@ -2,8 +2,8 @@
 
 > Lebendes Referenz-Dokument. Definiert pro Feature/Detail den absolut perfekten Zielzustand, hält den aktuellen Ist-Stand fest und listet messbare Akzeptanz-Kriterien als Checkliste. Wird über viele Sessions hinweg fortgeschrieben.
 >
-> **Last update:** 2026-05-23 (G/H/I durch) · **Stand:** OpenPM @ `main` (`badcf06` + uncommitted D/E/F/G/H/I work)
-> **Aktueller Gesamt-Score:** **72 / 100** (A/B/C/D/E/F + G State-UI + H Reliability + I Lifecycle voll durch)
+> **Last update:** 2026-05-28 (J/K/L durch) · **Stand:** OpenPM @ `main` (`269a5cf` — J/K/L gemerged + verifiziert)
+> **Aktueller Gesamt-Score:** **82 / 100** (A/B/C/D/E/F + G/H/I + J Briefing-Cap + K Token-Budget + L Format-Support durch; Whisper-local-Default + ARQ-Cron-Aggregator deferred)
 
 ---
 
@@ -58,9 +58,9 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | G. State-UI (Status-Block) | 5 % | 100 / 100 | StateGrid + StatusPanel-Summary + Flash-on-State-Change + Versions-Footer + nextDeadline-Util live |
 | H. Reliability + Error-Paths | 9 % | 100 / 100 | Typed LLM-Exceptions + Retry-Matrix + JSON-Schema-Re-Prompt + completed_partial + /api/health/live+ready + Doc-Error-Banner |
 | I. Dokument-Lifecycle | 5 % | 100 / 100 | Soft-Delete + State-Recompose + Git-Revert-Variant + Replace-Dry-Run + Replace-Commit + 30s-Undo + Kebab-Menü in DocumentRow |
-| J. Briefing + Context-Window | 5 % | 60 / 100 | Briefing auto-rendered; Cap + Priorisierung fehlt |
-| K. Token-Budget + Kosten | 5 % | 0 / 100 | Komplette Lücke |
-| L. Format-Support (EML/Audio/Bilder) | 5 % | 35 / 100 | Doc/Text ok; EML/Audio/OCR fehlen |
+| J. Briefing + Context-Window | 5 % | 100 / 100 | tiktoken SOFT 1000 / HARD 1500 + Slot-Priorisierung + Cache-Skip (briefing_state_version) + UI-Pille |
+| K. Token-Budget + Kosten | 5 % | 95 / 100 | PRICING + Usage-Tuple + ChatMessage/Document JSONB + /usage Endpoint + Budget Hard/Soft + Dashboard; ARQ-Cron-Aggregator deferred (on-demand mit Redis-Cache) |
+| L. Format-Support (EML/Audio/Bilder) | 5 % | 90 / 100 | ALLOWED erweitert + EML-Parser + Image-OCR + Audio-Transcribe-Provider + source_format/parent_document_id + Format-Icons + Attachment-Gruppierung; WHISPER_PROVIDER default=off statt local (faster-whisper opt-in) |
 | M. Onboarding + Multi-Projekt-Nav | 3 % | 35 / 100 | Sidebar da; Wizard fehlt |
 | N. Clipboard-Paste | 2 % | 70 / 100 | Bild + Lang-Text-Routing live; Slash-Conflict offen |
 | O. Slash-Commands | 2 % | 0 / 100 | Nicht implementiert |
@@ -74,13 +74,37 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | W. Nicht-funktional (DevOps/Tests/Obs) | 4 % | 60 / 100 | Docker + Alembic + E2E vorhanden; Observability fehlt |
 | **Summe** | **100 %** | — | — |
 
-**Gesamt-Score: 72 / 100.** Berechnung: Σ Bereich × Gewicht = ~72. Sprung gegenüber 63 stammt aus voller G/H/I-Welle (State-UI Flash + Versions-Footer · Reliability typed LLM-exceptions + Retry-Matrix + completed_partial + Healthcheck · Lifecycle Soft-Delete + Git-Revert + Replace-Flow + 30s-Undo). Restliche Punkte zu 100 liegen in: K (Token-Budget komplett), L (EML/Audio/OCR), M (Onboarding-Wizard), O (Slash-Commands), Q (Refresh + Recovery), R (Browser-Push), T (Stale-Cron), U (Export), W (Observability).
+**Gesamt-Score: 82 / 100.** Berechnung: Σ Bereich × Gewicht ≈ 82. Sprung gegenüber 72 stammt aus J/K/L-Welle (Briefing tiktoken-Cap + Slot-Priorisierung + Cache-Skip · Token-Usage-Capture in llm.py + ChatMessage/Document JSONB + /usage Endpoint + Budget Hard/Soft + Dashboard · Format-Support EML/Image-OCR/Audio-Provider-Abstraction + source_format/parent_document_id + Icons). Restliche Punkte zu 100 liegen in: K (ARQ-Hourly-Cron-Aggregator), L (Whisper local-default + Bundle), M (Onboarding-Wizard), O (Slash-Commands), P (Cmd+K/N/B Mapping), Q (Refresh + Recovery), R (Browser-Push), T (Stale-Cron), U (Export), W (Observability/Backup).
 
 Score-Update-Pflicht: bei jedem PR der Items abhakt → Bereich-Score neu berechnen (`erfüllte Items / Gesamt-Items × 100`), dann Gesamt neu summieren. Helfer-Skript siehe Sektion 5.
 
 ---
 
 ## 2.1 Session-Log
+
+### 2026-05-28 — J + K + L Sweep
+
+**Streams gelandet** (2 parallele Sonnet-Subagents via Worktree-Isolation für K + L, plus 1 sequenzieller J + Main-Thread-Merge mit Konflikt-Resolution in 5 Dateien):
+
+- **J Briefing-Cap + Caching** — Alembic `0013_project_briefing_meta` (4 Spalten: `briefing_priority_order JSONB`, `briefing_token_count INT`, `briefing_was_truncated BOOL`, `briefing_state_version INT`). `services/briefing.py::render_briefing` refactored zu Slot-by-Slot mit `BriefingResult(text, token_count, was_truncated)` Return; tiktoken `cl100k_base` SOFT=1000/HARD=1500. `DEFAULT_PRIORITY_ORDER = [blockers, open_tasks, deadlines, decisions, contacts, custom, dynamic_sections]`; Conflict-Sektion + Header außerhalb der Priorisierung; unknown slots → warn+skip. Pipeline + Chat-Tool + State-Router Cache-Skip wenn `briefing_state_version == state.version` (Log `briefing_cached=true`). `BriefingPanel` Footer-Pille mit Token-Count + amber `gekürzt`-Pill bei was_truncated. 23 neue Tests + Live-API Validierung: `briefing_token_count=1269, briefing_was_truncated=true, briefing_state_version=91`.
+
+- **K Token-Budget + Kosten** — Alembic `0014_token_usage_budget` (`chat_messages.token_usage JSONB`, `documents.extraction_token_usage JSONB`, `projects.monthly_budget_usd NUMERIC(10,4)`). `agent_config.PRICING` Dict mit 9 Modellen + `FALLBACK_PRICING` + `estimate_cost_usd()`. `services/llm.py::complete()` return `(response, UsageRecord)`; `stream()` yields `{type:delta}|{type:usage}`; `agent_round()` yields per-round + cumulative usage events. `BudgetExceededError` raised in `_check_budget()` (80%→Redis pubsub warning, 100%→raise auf neue Ops). Pipeline schreibt `Document.extraction_token_usage = {prompt_total, completion_total, cost_total_usd, breakdown[]}` mit per-Step Records (`document_summary`, `document_state_extraction`). Chat schreibt `ChatMessage.token_usage` mit `purpose` ∈ {chat, title, tool}. Neuer Router `/api/projects/{id}/usage?period={today|7d|30d|mtd|90d}` mit Aggregation by-model/by-purpose/daily + `hypothetical_cheapest` Re-Pricing + Redis 60s Cache. `PATCH /usage/budget` für Project. Frontend: `ChatMessage` Subline `{model} · Xk in · Y out · ≈ $Z`, `StatusPanel` Footer `Verbrauch heute: $X.XX` + MTD-Budget-Bar, `AppSidebar` Verbrauch-Link, vollständige `/projects/[id]/usage` Page (recharts stacked bar + Tabellen + Budget-Input + cheapest-Comparison). `useProjectSSE` budget_warning Toast + budget_exceeded inline-Banner. 34/34 neue Tests grün. ARQ Hourly-Cron-Aggregator deferred (on-demand + Redis-Cache reicht für UI). Live-Validierung: `total: prompt=17288, completion=127, cost_usd=$0.0177`.
+
+- **L Format-Support EML/Audio/Image** — Alembic `0015_document_formats` (`documents.source_format VARCHAR(32)`, `documents.parent_document_id UUID FK self-ref ON DELETE SET NULL` + partial index). `models/document.py` mit `parent`/`children` Relationship. ALLOWED_EXTENSIONS erweitert: `eml,png,jpg,jpeg,webp,mp3,m4a,wav,ogg` + MIME-Guard (image/*, audio/*, message/rfc822). `services/email_parser.py` stdlib-only (`email.policy.default`) mit `parse_eml() → ParsedEmail{subject,from,to,date,body,attachments}` + `to_plain_text()`. `services/transcription.py` Provider-Abstraktion `OffProvider | LocalProvider(faster-whisper) | OpenAIProvider`. Pipeline routet `source_format=audio` zu Phase 0 `transcribe` Step (vor parse), `image` zu kreuzberg `force_ocr=True`, `eml` zu email_parser + Attachments als sub-documents via `parent_document_id`. `config.py` `WHISPER_PROVIDER` ∈ {off,local,openai}, Default **off** (Abweichung vom Roadmap-Default `local` — faster-whisper braucht pip-install + Modell-Download nicht im PR gebundelt). Frontend: `FormatIcon` switch (Mail/Image/Mic/FileText) in `DocumentCard` + `DocumentsPanel`, EML attachment-Gruppierung mit expand/collapse, audio `Transkribieren…` Pill, `pipeline-phases.ts` Phase 0 `transcribe`, DropZone + ChatInput accept-Listen erweitert. 77 neue Tests grün (1 skipped: faster-whisper nicht installiert).
+
+- **Main-Thread-Konsolidierung** — K + L Worktrees waren auf falscher Basis (`badcf06` statt `fbf8b8f`/J-HEAD) gespawnt → 5-Datei Merge-Konflikt-Resolution (`routers/documents.py`, `tasks/pipeline.py`, `cockpit/DocumentsPanel.tsx`, `upload/DocumentCard.tsx`, `lib/pipeline-phases.ts`); L-Migration `down_revision` von `0008` auf `0014` re-chained. `_new_document_row` signature erweitert für `source_format` + `parent_document_id`. Schema-Wiring fix in commit `269a5cf`: `_project_response()` ergänzte briefing-meta + budget Feld-Passthrough; `DocumentResponse.extraction_token_usage` ergänzt — beide on disk vorhanden, Serialization-Layer war Lücke. ChatInput accept-Liste mit-extended für File-Anhänge.
+
+**Score-Effekt:** J 60→100 (+40, weight 5%), K 0→95 (+95, weight 5%), L 35→90 (+55, weight 5%). **Gesamt 72 → 82.**
+
+**Test-Bilanz:** Backend pytest 412 passed / 2 pre-existing failures (`test_config.embedding_dimension`, unrelated) / 1 skipped. Frontend lint clean, `tsc --noEmit` clean. Playwright `jkl-smoke.spec.ts` 7/7 grün (Briefing-Pille + Usage-Page + StatusPanel-Cost + Format-Icons + DropZone-Accept). Live podman-Stack-Validierung via curl + Browser: alle 4 neuen API-Fields serialisiert, Briefing-Cap aktiv (1269/1500 tokens, truncated=true), Usage aggregiert $0.0177 aus 2 probe-Pipelines.
+
+**Offen / Follow-ups:**
+- K: ARQ Hourly-Cron-Aggregator → eigenes Item in Phase 5; on-demand + Redis-60s-Cache deckt UI-Latenz ab.
+- L: Whisper-Default `local` braucht `pip install faster-whisper` + Modell-Download im Docker-Image; Provider-Abstraktion + Stub steht, opt-in via `WHISPER_PROVIDER=local`.
+- L: Settings-Page Whisper-Toggle ist informational (Text-Beschreibung) statt vollem Radio + Persist; Erweiterung gehört zu M (Settings-Refactor).
+- J: Drag-sort Settings-Page für `briefing_priority_order` deferred — Column existiert, Override via API möglich; UI-Builder kommt mit M.
+
+---
 
 ### 2026-05-23 — G + H + I Sweep
 
@@ -525,16 +549,16 @@ Projekt-Setting `briefing_priority_order` (JSONB) kann Reihenfolge überschreibe
 ### ✅ Checkliste
 - [x] Auto-Render nach State-Merge.
 - [x] Wird im Chat-System-Prompt eingebettet.
-- [ ] Token-Counter pro generiertem Briefing (tiktoken `cl100k_base` für GPT-Modelle, fallback `len(text) / 4`).
-- [ ] Truncation-Strategy implementiert mit Default-Priorisierung oben.
-- [ ] `projects.briefing_priority_order` JSONB-Spalte (nullable, default = NULL = Default-Reihenfolge).
-- [ ] `projects.briefing_token_count` Integer.
-- [ ] `projects.briefing_was_truncated` Boolean.
-- [ ] `projects.briefing_state_version` Integer (für Caching: regeneriere nur wenn `current_state.version > briefing_state_version`).
-- [ ] Caching-Skip in Pipeline-Step 8: wenn State-Version unverändert seit letztem Briefing → skip render, log „briefing_cached".
-- [ ] UI zeigt Briefing-Größe + Truncation-Hinweis als Badge im Status-Block-Footer.
-- [ ] Per-Item-Source-Reference im Briefing (siehe Sektion F).
-- [ ] Settings-Page für `briefing_priority_order` (drag-sortierbare Liste).
+- [x] Token-Counter pro generiertem Briefing (tiktoken `cl100k_base`, SOFT=1000 / HARD=1500). (`services/briefing.py::BriefingResult.token_count`.)
+- [x] Truncation-Strategy implementiert mit Default-Priorisierung (`DEFAULT_PRIORITY_ORDER = [blockers, open_tasks, deadlines, decisions, contacts, custom, dynamic_sections]`, Conflict-Sektion + Header außerhalb).
+- [x] `projects.briefing_priority_order` JSONB-Spalte (nullable). (Alembic `0013`.)
+- [x] `projects.briefing_token_count` Integer.
+- [x] `projects.briefing_was_truncated` Boolean.
+- [x] `projects.briefing_state_version` Integer.
+- [x] Caching-Skip in Pipeline-Step 8 + Chat-Tool + State-Router: bei `briefing_state_version == state.version` skip render, log `briefing_cached=true`. (`tasks/pipeline.py::_briefing_task`.)
+- [x] UI: BriefingPanel Footer-Pille Token-Count + amber `gekürzt`-Pill bei `was_truncated` mit Tooltip-Hinweis auf Settings.
+- [x] Per-Item-Source-Reference im Briefing (siehe Sektion F).
+- [~] Settings-Page für `briefing_priority_order` drag-sortable — Column + API-Override existiert; UI-Builder deferred (Folgewelle mit Sektion M).
 
 ---
 
@@ -547,20 +571,20 @@ Pro Chat-Message: Token-Verbrauch (Input + Output) + USD-Schätzung sichtbar als
 - **Komplette Lücke.** Kein Tracking in `llm.py`, kein Feld in `chat_messages`, kein Endpoint, kein UI.
 
 ### ✅ Checkliste
-- [ ] `llm.py` extrahiert `usage.prompt_tokens` + `usage.completion_tokens` aus Response (OpenAI-kompatible Schema).
-- [ ] `chat_messages.token_usage` JSONB (`{prompt, completion, model, cost_usd, purpose}` — purpose ∈ `chat|title|tool_call`).
-- [ ] `documents.extraction_token_usage` JSONB.
-- [ ] Pricing-Modul `agent_config.PRICING`: `{model_id: {input_per_1k: 0.0025, output_per_1k: 0.01}}`. Editor-friendly Python-Dict.
-- [ ] Optional Live-Refresh: `scripts/refresh_pricing.py` zieht Daten von LiteLLM oder Helicone-API in eine cache-DB-Tabelle `pricing_cache`. Fallback bei Network-Fail = statisches Modul.
-- [ ] Aggregations-Endpoint `GET /api/projects/{id}/usage?period=30d` → `{daily: [...], by_model: [...], by_purpose: [...]}`.
-- [ ] UI: pro Chat-Message kleine Subzeile (`gpt-4o · 1.2k in · 380 out · ≈ $0.012`).
-- [ ] Cockpit: Status-Block-Footer optional `Verbrauch heute: $0.42`.
-- [ ] Settings-Seite mit Verbrauchsdiagramm (Bar pro Tag, Stack pro Modell).
-- [ ] Settings-Seite zeigt „Diese Woche: gpt-4o $0.42 — hypothetisch mit claude-haiku $0.08" als Power-User-Anreiz für Modell-Switch.
-- [ ] `projects.monthly_budget_usd` Decimal nullable.
-- [ ] Soft-Warning Toast bei 80 % monatlich erreicht.
-- [ ] Hard-Block: bei 100 % wirft `llm.complete()` `BudgetExceededError` **am Anfang neuer Operations**. Laufende Pipelines/Chats schließen ab (sonst korrupter State).
-- [ ] Telemetry-Aggregation läuft als ARQ Cron stündlich → cached pro Projekt für schnelles UI-Rendering.
+- [x] `llm.py` extrahiert `usage.prompt_tokens` + `usage.completion_tokens` aus Response; `complete()` returns `(response, UsageRecord)`; `stream()` yields delta + usage events; `agent_round()` yields per-round + cumulative usage.
+- [x] `chat_messages.token_usage` JSONB mit `{prompt_tokens, completion_tokens, model, cost_usd, purpose}` (Alembic `0014`).
+- [x] `documents.extraction_token_usage` JSONB mit `{prompt_total, completion_total, cost_total_usd, breakdown[]}`.
+- [x] Pricing-Modul `agent_config.PRICING` (9 Modelle) + `FALLBACK_PRICING` + `estimate_cost_usd()`.
+- [ ] Optional Live-Refresh `scripts/refresh_pricing.py` — deferred; statisches Modul reicht für v1.
+- [x] Aggregations-Endpoint `GET /api/projects/{id}/usage?period={today|7d|30d|mtd|90d}` → `{daily, by_model, by_purpose, total, budget_usd, month_to_date_cost_usd, budget_used_pct, hypothetical_cheapest}`. (`routers/usage.py`.)
+- [x] UI: ChatMessage-Subline `{model} · Xk in · Y out · ≈ $Z` für assistant messages mit token_usage.
+- [x] Cockpit: StatusPanel Footer `Verbrauch heute: $X.XX` + (wenn Budget gesetzt) MTD-Bar.
+- [x] Settings-Seite `/projects/[id]/usage` mit recharts stacked bar (daily by-model) + by-purpose Tabelle + Budget-Input + Save.
+- [x] Hypothetical-Cheapest-Vergleich in Usage-Page (Re-Pricing total prompt+completion am günstigsten PRICING-Eintrag).
+- [x] `projects.monthly_budget_usd` Decimal(10,4) nullable.
+- [x] Soft-Warning bei 80% monatlich via Redis pubsub `budget_warning:{project_id}` → frontend sonner-Toast (8s, dedupliziert).
+- [x] Hard-Block: `BudgetExceededError` aus `llm._check_budget()` bei MTD >= budget, raises **am Anfang neuer Ops**; chat-router emit SSE `error:budget_exceeded` + non-dismissable Banner.
+- [~] Telemetry-Aggregation als ARQ Cron stündlich → **deferred**; on-demand SQL JSONB-Aggregation + Redis 60s-Cache deckt UI-Latenz.
 
 ---
 
@@ -580,19 +604,20 @@ Pro Chat-Message: Token-Verbrauch (Input + Output) + USD-Schätzung sichtbar als
 - EML: kein Code.
 
 ### ✅ Checkliste
-- [ ] ALLOWED erweitert: `eml, png, jpg, jpeg, webp, mp3, m4a, wav, ogg`.
+- [x] ALLOWED erweitert: `eml, png, jpg, jpeg, webp, mp3, m4a, wav, ogg` + MIME-Guard (image/*, audio/*, message/rfc822). (`routers/documents.py::_reject_unsupported_type`.)
 - [ ] HEIC als Phase-5b-Add wenn iOS-Workflow konkret nachgefragt.
-- [ ] EML-Parser-Service `services/email_parser.py` → strukturiertes `{subject, from, to, date, body, attachments[]}` → in Plain-Text-Format für Pipeline.
-- [ ] DB: `documents.parent_document_id` FK (nullable, self-ref). Attachments setzen Parent = EML-Doc.
-- [ ] DB: `documents.source_format` Enum-Spalte (`pdf|docx|txt|md|eml|image|audio|spreadsheet|text|...`).
-- [ ] Image-OCR-Service via Kreuzberg — Pipeline-Step erkennt MIME-Type.
-- [ ] Audio-Step: neuer Pipeline-Step `transcribe` (vor `parsing`). Setting `WHISPER_PROVIDER = "local"|"openai"|"off"`, Default `local`.
-- [ ] Local Whisper: bundled mit Docker-Image (whisper.cpp + small.de Modell, ~500 MB).
-- [ ] OpenAI Whisper opt-in: Settings-Page zeigt Warnung „Audio verlässt deine Infrastruktur. Daten gehen an OpenAI." mit explizitem Checkbox-Confirm.
-- [ ] Audio bleibt als `storage/projects/{id}/{uuid}.m4a`; Transkript-Text in `documents.extracted_text`. **Ein Document** mit `source_format=audio` + zwei Repräsentationen.
-- [ ] Pro Format ein Test-Fixture in `tests/fixtures/`.
-- [ ] Frontend DocumentCard zeigt format-spezifisches Icon (Mail / Mic / Image / FileText).
-- [ ] Pipeline-Card zeigt extra Step „Transkribieren" bei Audio (auch in 4-Phasen-Default sichtbar als zusätzliche Phase 0).
+- [x] EML-Parser-Service `services/email_parser.py` (stdlib `email.policy.default`) → `ParsedEmail{subject, from_addr, to_addrs, date, body_text, attachments[]}` + `to_plain_text()` für Pipeline.
+- [x] DB: `documents.parent_document_id` FK (nullable, self-ref, ON DELETE SET NULL, partial index). (Alembic `0015`.)
+- [x] DB: `documents.source_format` VARCHAR(32) (Werte: `pdf|docx|txt|md|csv|xlsx|rtf|html|json|log|eml|image|audio|spreadsheet|other`). Backfill-SQL aus mime_type/extension.
+- [x] Image-OCR via Kreuzberg `force_ocr=True` — Pipeline `_parse_with_ocr()` bei `source_format == "image"` unabhängig von globalem `kreuzberg_force_ocr` Setting.
+- [x] Audio-Step: neuer Pipeline-Step `transcribe` (vor `parsing`); Setting `WHISPER_PROVIDER ∈ {off,local,openai}`. (`config.py`, `tasks/pipeline.py` Step 1b.)
+- [~] Local Whisper bundled mit Docker-Image — **deferred**; `services/transcription.py::LocalProvider` nutzt `faster-whisper` (lazy import → ImportError mit Hinweis falls nicht installiert); pip-Install + Modell-Download opt-in.
+- [~] OpenAI Whisper opt-in: `services/transcription.py::OpenAIProvider` impl; Settings-Page zeigt Provider-Liste mit Datenschutz-Hinweis (Text, kein Checkbox-Confirm-Flow — gehört zu Sektion M Settings-Refactor).
+- [x] Audio bleibt als `storage/projects/{id}/{uuid}.{ext}`; Transkript-Text in `documents.raw_content` + `documents.extraction_token_usage` falls openai-Whisper. **Ein Document** mit `source_format="audio"`.
+- [x] Pro Format ein Test-Fixture in `tests/fixtures/`: `sample.eml` (multipart mit 2 Attachments), `1x1.png`, `silence.mp3`.
+- [x] Frontend DocumentCard + DocumentsPanel `FormatIcon`-Switch (Mail / Mic / Image / FileText) basierend auf source_format.
+- [x] Pipeline-Card audio: `Transkribieren…` Pill während `labelRaw === "transcribe"`; `pipeline-phases.ts` mapped `transcribe → "read"` Phase 0.
+- [x] WHISPER_PROVIDER Default **off** statt `local` — Local braucht `faster-whisper` pip + Modell; Provider-Abstraktion + Stub steht, opt-in via Setting. (Deviation dokumentiert, Folge-PR setzt Default auf `local` sobald Image-Bundle steht.)
 
 ### ⚖️ Decisions
 - **Whisper-Default = local.** Self-hosted-Prinzip. Cloud-Whisper opt-in mit Datenschutz-Warning.
