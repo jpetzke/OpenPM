@@ -38,10 +38,12 @@ from app.models.state import ChangeSession, ProjectState, StateChangelog
 from app.services import briefing as briefing_service
 from app.services import change_session as change_session_service
 from app.services import git_service, qdrant_service
+from app.services.email_parser import parse_eml
 from app.services.extraction import extract_state_delta, parse_document, summarize_document
 from app.services.llm import LLMInvalidJSON, LLMRateLimit, LLMServerError, LLMTimeout
 from app.services.provider_resolver import get_active_provider
 from app.services.state_manager import compute_delta, merge_state
+from app.services.transcription import get_provider as get_transcription_provider
 
 import traceback as _traceback
 
@@ -392,6 +394,103 @@ async def close_idle_change_sessions(ctx: dict) -> int:
     return len(closed)
 
 
+# ─────────────────────────── format routing helpers ───────────────────────────
+
+
+async def _parse_with_ocr(file_bytes: bytes, mime_type: str) -> tuple[str, dict, list[str]]:
+    """Parse an image via kreuzberg with force_ocr=True."""
+    try:
+        from kreuzberg import ChunkingConfig, ExtractionConfig, OcrConfig, extract_bytes
+        from app.services.extraction import _simple_chunk  # noqa: PLC2701
+        config = ExtractionConfig(
+            output_format="markdown",
+            force_ocr=True,
+            ocr=OcrConfig(backend="tesseract", language=settings.kreuzberg_ocr_language),
+            chunking=ChunkingConfig(max_chars=512, max_overlap=100),
+        )
+        result = await extract_bytes(file_bytes, mime_type=mime_type, config=config)
+        raw_content = result.content or ""
+        metadata = result.metadata or {}
+        chunks = [c.text if hasattr(c, "text") else str(c) for c in (result.chunks or [])]
+        if not chunks and raw_content:
+            chunks = _simple_chunk(raw_content, 512, 100)
+        return raw_content, metadata, chunks
+    except Exception as exc:
+        raise RuntimeError(f"Image OCR failed: {exc}") from exc
+
+
+async def _enqueue_eml_attachments(
+    attachments: list,
+    parent_doc: Document,
+    project_id: uuid.UUID,
+    current_user_id: uuid.UUID,
+    db: AsyncSession,
+    redis: Any,
+    channel: str,
+) -> None:
+    """Create Document rows for each EML attachment and enqueue them."""
+    from app.routers.documents import ALLOWED_EXTENSIONS, _source_format_from
+    import structlog as _structlog
+    _log = _structlog.get_logger()
+
+    for att in attachments:
+        ext = "." + att.filename.rsplit(".", 1)[-1].lower() if "." in att.filename else ""
+        if ext not in ALLOWED_EXTENSIONS:
+            _log.info(
+                "eml_attachment_skipped",
+                filename=att.filename,
+                mime_type=att.mime_type,
+                reason="extension_not_allowed",
+            )
+            continue
+        try:
+            # Persist attachment bytes to storage
+            from app.services.storage import save_document as _save_document
+            att_path = _save_document(str(project_id), att.content_bytes, att.filename)
+            fmt = _source_format_from(att.filename, att.mime_type)
+            sub_doc = Document(
+                project_id=project_id,
+                original_filename=att.filename,
+                original_path=att_path,
+                mime_type=att.mime_type,
+                file_size=len(att.content_bytes),
+                pipeline_logs=[],
+                pipeline_step=0,
+                pipeline_step_label="pending",
+                pipeline_updated_at=datetime.now(timezone.utc),
+                uploaded_by=current_user_id,
+                processing_status="pending",
+                source_format=fmt,
+                parent_document_id=parent_doc.id,
+            )
+            db.add(sub_doc)
+            await db.flush()
+            await db.refresh(sub_doc)
+            await db.commit()
+
+            # Enqueue the sub-document through the pipeline
+            from arq import create_pool as _arq_create_pool
+            from arq.connections import RedisSettings as _RedisSettings
+            _pool = await _arq_create_pool(_RedisSettings.from_dsn(settings.redis_url))
+            try:
+                await _pool.enqueue_job("process_document", str(sub_doc.id))
+            finally:
+                await _pool.aclose()
+
+            await _log_pipeline(
+                db, redis, channel, parent_doc,
+                step=2, label="parsing", status="info",
+                detail=f"Anhang eingereiht: {att.filename}",
+                meta={"sub_document_id": str(sub_doc.id), "format": fmt},
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "eml_attachment_enqueue_failed",
+                filename=att.filename,
+                error=str(exc),
+            )
+
+
 # ─────────────────────────────── pipeline body ────────────────────────────────
 
 
@@ -442,31 +541,97 @@ async def _process(
             detail="Dokumentverarbeitung gestartet",
         )
 
-        # Step 2 — parse
+        # Step 1b — Phase 0: Transcribe (audio only)
         await _check_cancel(redis, effective_job_id)
         from app.services.storage import get_document_bytes
 
+        file_bytes = get_document_bytes(doc.original_path)
+        source_format = doc.source_format or ""
+
+        if source_format == "audio":
+            await _log_pipeline(
+                db, redis, channel, doc,
+                step=2, label="transcribe", status="running",
+                detail="Audio wird transkribiert",
+                meta={"mime_type": doc.mime_type, "size_bytes": doc.file_size},
+            )
+            try:
+                provider = get_transcription_provider()
+                transcript = await provider.transcribe(file_bytes, doc.mime_type)
+            except (OSError, ImportError) as exc:
+                raise RuntimeError(f"Transkription fehlgeschlagen: {exc}") from exc
+            # Replace file_bytes with transcript text bytes for the parse step
+            file_bytes = transcript.encode("utf-8")
+            # Override mime_type so kreuzberg treats it as plain text
+            _effective_mime = "text/plain"
+            await _log_pipeline(
+                db, redis, channel, doc,
+                step=2, label="transcribe", status="done",
+                detail="Transkription abgeschlossen",
+                meta={"transcript_length": len(transcript)},
+            )
+        else:
+            _effective_mime = doc.mime_type
+
+        # Step 2 — parse
         await _log_pipeline(
             db, redis, channel, doc,
             step=2, label="parsing", status="running",
             detail="Kreuzberg extrahiert Inhalt",
-            meta={"mime_type": doc.mime_type, "size_bytes": doc.file_size},
+            meta={"mime_type": _effective_mime, "size_bytes": doc.file_size},
         )
-        file_bytes = get_document_bytes(doc.original_path)
-        raw_content, metadata, chunks = await parse_document(file_bytes, doc.mime_type)
-        doc.raw_content = raw_content
-        doc.doc_metadata = metadata
-        await db.flush()
-        await _log_pipeline(
-            db, redis, channel, doc,
-            step=2, label="parsing", status="done",
-            detail="Extraktion abgeschlossen",
-            meta={
-                "chunk_count": len(chunks),
-                "raw_length": len(raw_content),
-                "metadata_keys": sorted((metadata or {}).keys()),
-            },
-        )
+
+        # EML: parse via email_parser, enqueue attachments as sub-docs, then
+        # continue pipeline with plain-text representation of the email body.
+        if source_format == "eml":
+            parsed_email = parse_eml(file_bytes)
+            # Convert to plain text for the rest of the pipeline
+            eml_text = parsed_email.to_plain_text()
+            raw_content = eml_text
+            metadata: dict = {
+                "subject": parsed_email.subject,
+                "from": parsed_email.from_addr,
+                "to": parsed_email.to_addrs,
+                "date": parsed_email.date,
+            }
+            chunks: list[str] = [eml_text] if eml_text else []
+            doc.raw_content = raw_content
+            doc.doc_metadata = metadata
+            await db.flush()
+            await _log_pipeline(
+                db, redis, channel, doc,
+                step=2, label="parsing", status="done",
+                detail=f"E-Mail geparst — {len(parsed_email.attachments)} Anhang/Anhänge",
+                meta={
+                    "chunk_count": len(chunks),
+                    "raw_length": len(raw_content),
+                    "attachment_count": len(parsed_email.attachments),
+                },
+            )
+            # Enqueue each attachment as a sub-document (non-blocking)
+            await _enqueue_eml_attachments(
+                parsed_email.attachments, doc, project_id, current_user_id=doc.uploaded_by,
+                db=db, redis=redis, channel=channel,
+            )
+        else:
+            # Image: always force OCR via kreuzberg regardless of global setting
+            if source_format == "image":
+                raw_content, metadata, chunks = await _parse_with_ocr(file_bytes, _effective_mime)
+            else:
+                raw_content, metadata, chunks = await parse_document(file_bytes, _effective_mime)
+            doc.raw_content = raw_content
+            doc.doc_metadata = metadata
+            await db.flush()
+            await _log_pipeline(
+                db, redis, channel, doc,
+                step=2, label="parsing", status="done",
+                detail="Extraktion abgeschlossen",
+                meta={
+                    "chunk_count": len(chunks),
+                    "raw_length": len(raw_content),
+                    "metadata_keys": sorted((metadata or {}).keys()),
+                },
+            )
 
         # Step 3 — summarize + extract in parallel (two independent LLM calls)
         await _check_cancel(redis, effective_job_id)

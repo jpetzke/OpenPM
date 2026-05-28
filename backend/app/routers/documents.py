@@ -39,10 +39,53 @@ router = APIRouter(prefix="/api/projects/{project_id}/documents", tags=["documen
 
 # Extension allow-list — keep aligned with kreuzberg's parser coverage.
 ALLOWED_EXTENSIONS = {
+    # Documents / text
     ".pdf", ".txt", ".md", ".markdown", ".csv",
     ".docx", ".doc", ".xlsx", ".xls", ".rtf",
     ".json", ".html", ".htm", ".log",
+    # Email
+    ".eml",
+    # Images (OCR via kreuzberg)
+    ".png", ".jpg", ".jpeg", ".webp",
+    # Audio (Whisper transcription)
+    ".mp3", ".m4a", ".wav", ".ogg",
 }
+
+# MIME-type based format detection used by upload route and pipeline.
+def _source_format_from(filename: str | None, mime_type: str | None) -> str:
+    """Return a canonical source_format string for a given filename + mime."""
+    mt = (mime_type or "").lower()
+    ext = _extension(filename)
+    if mt.startswith("image/") or ext in {".png", ".jpg", ".jpeg", ".webp"}:
+        return "image"
+    if mt.startswith("audio/") or ext in {".mp3", ".m4a", ".wav", ".ogg"}:
+        return "audio"
+    if mt == "message/rfc822" or ext == ".eml":
+        return "eml"
+    if mt == "application/pdf" or ext == ".pdf":
+        return "pdf"
+    if mt in {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/msword",
+    } or ext in {".docx", ".doc"}:
+        return "docx"
+    if mt in {
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+        "text/csv",
+    } or ext in {".xlsx", ".xls", ".csv"}:
+        return "spreadsheet"
+    if mt == "text/html" or ext in {".html", ".htm"}:
+        return "html"
+    if mt == "application/json" or ext == ".json":
+        return "json"
+    if mt == "application/rtf" or ext == ".rtf":
+        return "rtf"
+    if ext == ".log":
+        return "log"
+    if mt in {"text/plain", "text/markdown"} or ext in {".txt", ".md", ".markdown"}:
+        return "txt"
+    return "other"
 
 
 def _extension(filename: str | None) -> str:
@@ -51,18 +94,22 @@ def _extension(filename: str | None) -> str:
     return Path(filename).suffix.lower()
 
 
-def _reject_unsupported_type(filename: str | None) -> None:
+def _reject_unsupported_type(filename: str | None, mime_type: str | None = None) -> None:
     ext = _extension(filename)
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail={
-                "code": "unsupported_media_type",
-                "extension": ext or None,
-                "allowed": sorted(ALLOWED_EXTENSIONS),
-                "hint": "Inhalt als Text einfügen?",
-            },
-        )
+    mt = (mime_type or "").lower()
+    if ext in ALLOWED_EXTENSIONS:
+        return
+    if mt.startswith("image/") or mt.startswith("audio/") or mt == "message/rfc822":
+        return
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail={
+            "code": "unsupported_media_type",
+            "extension": ext or None,
+            "allowed": sorted(ALLOWED_EXTENSIONS),
+            "hint": "Inhalt als Text einfügen?",
+        },
+    )
 
 
 async def _redis() -> Redis:
@@ -111,6 +158,8 @@ def _new_document_row(
     mime_type: str,
     file_size: int,
     uploaded_by: uuid.UUID,
+    source_format: str | None = None,
+    parent_document_id: uuid.UUID | None = None,
 ) -> Document:
     return Document(
         project_id=project_id,
@@ -124,6 +173,8 @@ def _new_document_row(
         pipeline_updated_at=datetime.now(timezone.utc),
         uploaded_by=uploaded_by,
         processing_status="pending",
+        source_format=source_format,
+        parent_document_id=parent_document_id,
     )
 
 
@@ -268,7 +319,8 @@ async def upload_document(
             detail="no_active_llm_provider",
         )
 
-    _reject_unsupported_type(file.filename)
+    mime_type = file.content_type or "application/octet-stream"
+    _reject_unsupported_type(file.filename, mime_type)
 
     try:
         original_path, total_bytes = await storage_service.stream_document_to_disk(
@@ -283,7 +335,6 @@ async def upload_document(
             detail={"code": "file_too_large", "limit_bytes": exc.limit},
         )
 
-    # Compute sha256 of what we just wrote; used for per-project dedup.
     file_bytes = storage_service.get_document_bytes(original_path)
     content_hash = hashlib.sha256(file_bytes).hexdigest()
 
@@ -296,7 +347,6 @@ async def upload_document(
         )
         existing = dup_result.scalars().first()
         if existing is not None:
-            # Roll back the freshly written disk file; the existing doc owns the hash.
             storage_service.delete_document(original_path)
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -308,6 +358,7 @@ async def upload_document(
             )
 
     mime_type = file.content_type or "application/octet-stream"
+    source_format = _source_format_from(file.filename, mime_type)
     doc = _new_document_row(
         project_id=project_id,
         original_filename=file.filename or "upload",
@@ -315,6 +366,7 @@ async def upload_document(
         mime_type=mime_type,
         file_size=total_bytes,
         uploaded_by=current_user.id,
+        source_format=source_format,
     )
     doc.content_hash = content_hash
     arq_job_id = str(uuid.uuid4())

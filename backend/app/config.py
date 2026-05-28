@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     kreuzberg_force_ocr: bool = False
     kreuzberg_ocr_language: str = "deu+eng"
 
+    # ── Whisper / Audio transcription ──────────────────────────────────────────
+    # DEVIATION from roadmap: roadmap default is "local"; we default to "off"
+    # because local provider requires `pip install faster-whisper` + model
+    # download (~500 MB) which we don't bundle in this PR.  Set
+    # WHISPER_PROVIDER=local (with faster-whisper installed) or
+    # WHISPER_PROVIDER=openai (requires WHISPER_API_KEY) to enable.
+    whisper_provider: Literal["off", "local", "openai"] = "off"
+    whisper_model: str = "small"          # size hint for LocalProvider
+    whisper_api_key: str | None = None    # required when whisper_provider=openai
+    whisper_language: str = "auto"        # "auto" = whisper's language detection
+
     environment: Literal["dev", "staging", "production"] = "dev"
     debug_tracebacks: bool = False
 

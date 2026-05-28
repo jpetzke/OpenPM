@@ -7,8 +7,12 @@ import {
   CheckCircle2,
   CheckSquare,
   Clock,
+  FileText,
+  Image as ImageIcon,
   LayoutList,
   Loader2,
+  Mail,
+  Mic,
   MoreVertical,
   RefreshCw,
   Scale,
@@ -60,16 +64,26 @@ function StatusGlyph({ status }: { status: DocumentStatus | "cancelled" }) {
   return <Clock size={14} style={{ color: "var(--text-muted)" }} />;
 }
 
+function FormatIcon({ sourceFormat }: { sourceFormat: string | null }) {
+  const color = "var(--text-muted)";
+  if (sourceFormat === "eml") return <Mail size={13} style={{ color }} />;
+  if (sourceFormat === "image") return <ImageIcon size={13} style={{ color }} />;
+  if (sourceFormat === "audio") return <Mic size={13} style={{ color }} />;
+  return <FileText size={13} style={{ color }} />;
+}
+
 interface DocumentCardProps {
   doc: Document;
   projectId: string;
   onDelete: (doc: Document) => void;
   onRestore?: (doc: Document) => void;
+  /** Child documents (EML attachments) */
+  attachments?: Document[];
 }
 
 type WideStatus = DocumentStatus | "cancelled";
 
-export function DocumentCard({ doc, projectId, onDelete, onRestore }: DocumentCardProps) {
+export function DocumentCard({ doc, projectId, onDelete, onRestore, attachments = [] }: DocumentCardProps) {
   const qc = useQueryClient();
   const livePipeline = usePipelineStore((s) => s.pipelines[doc.id]);
   const liveDetail = usePipelineStore((s) => s.details[doc.id]);
@@ -83,6 +97,7 @@ export function DocumentCard({ doc, projectId, onDelete, onRestore }: DocumentCa
   const [diffPreview, setDiffPreview] = useState<DiffPreview | null>(null);
   const [pendingReplaceFile, setPendingReplaceFile] = useState<File | null>(null);
   const [replacing, setReplacing] = useState(false);
+  const [attachmentsExpanded, setAttachmentsExpanded] = useState(false);
   const replaceInputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const rawStatus = (livePipeline ?? doc.processing_status ?? "pending") as WideStatus;
@@ -159,8 +174,25 @@ export function DocumentCard({ doc, projectId, onDelete, onRestore }: DocumentCa
         borderColor,
       }}
     >
+      {/* Attachment indent: if this doc has a parent, show indented style */}
+      {doc.parent_document_id && (
+        <div
+          className="flex items-center gap-1.5 px-4 pt-1.5"
+        >
+          <span
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+            style={{
+              background: "var(--bg-elevated)",
+              color: "var(--text-muted)",
+            }}
+          >
+            Anhang
+          </span>
+        </div>
+      )}
       <header className="flex items-start gap-3 px-4 py-3">
-        <span className="pt-[3px]">
+        <span className="pt-[3px] flex items-center gap-1">
+          <FormatIcon sourceFormat={doc.source_format} />
           <StatusGlyph status={rawStatus} />
         </span>
         <div className="flex-1 min-w-0">
@@ -222,6 +254,34 @@ export function DocumentCard({ doc, projectId, onDelete, onRestore }: DocumentCa
             >
               {doc.processing_error}
             </p>
+          )}
+          {/* Audio: transcribe phase pill during processing */}
+          {doc.source_format === "audio" && rawStatus === "processing" && labelRaw === "transcribe" && (
+            <span
+              className="mt-1 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded"
+              style={{ background: "var(--bg-elevated)", color: "var(--accent)" }}
+            >
+              <Mic size={10} />
+              Transkribieren…
+            </span>
+          )}
+          {/* EML: attachment count badge + expand toggle */}
+          {attachments.length > 0 && (
+            <button
+              onClick={() => setAttachmentsExpanded((v) => !v)}
+              className="mt-1 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--bg-elevated)]"
+              style={{ color: "var(--text-muted)" }}
+            >
+              <Mail size={10} />
+              +{attachments.length} Anhang{attachments.length !== 1 ? "hänge" : ""}
+              <ChevronDown
+                size={10}
+                style={{
+                  transform: attachmentsExpanded ? "rotate(180deg)" : "none",
+                  transition: "transform 180ms ease",
+                }}
+              />
+            </button>
           )}
           {rawStatus === "completed_partial" && (
             <span
@@ -503,7 +563,7 @@ export function DocumentCard({ doc, projectId, onDelete, onRestore }: DocumentCa
           </ol>
         </section>
       )}
-    </article>
+      </article>
       {diffPreview && pendingReplaceFile && (
         <DiffPreviewModal
           diff={diffPreview}
@@ -528,6 +588,18 @@ export function DocumentCard({ doc, projectId, onDelete, onRestore }: DocumentCa
             }
           }}
         />
+      )}
+      {attachmentsExpanded && attachments.length > 0 && (
+        <div className="ml-6 mt-1 space-y-1 border-l-2 pl-3" style={{ borderColor: "var(--border)" }}>
+          {attachments.map((child) => (
+            <DocumentCard
+              key={child.id}
+              doc={child}
+              projectId={projectId}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
       )}
     </>
   );

@@ -642,6 +642,75 @@ export default function SettingsPage() {
 
           {renderProviderSection("LLM Provider", "llm", llmProviders)}
           {renderProviderSection("Embedding Provider", "embedding", embeddingProviders)}
+
+          {/* ── Whisper / Audio-Transkription ──────────────────────────────── */}
+          <div className="mt-8">
+            <h2
+              className="text-sm font-semibold mb-1"
+              style={{ color: "var(--text-primary)" }}
+            >
+              Audio-Transkription (Whisper)
+            </h2>
+            <p className="text-xs mb-4" style={{ color: "var(--text-muted)" }}>
+              Konfiguriert via Umgebungsvariable{" "}
+              <code
+                className="px-1 py-0.5 rounded text-[11px]"
+                style={{ background: "var(--bg-elevated)", color: "var(--text-secondary)" }}
+              >
+                WHISPER_PROVIDER
+              </code>
+              . Änderungen erfordern einen Server-Neustart.
+            </p>
+            <div
+              className="rounded-lg border p-5 space-y-3"
+              style={{ background: "var(--bg-surface)", borderColor: "var(--border-strong)" }}
+            >
+              <div className="flex flex-col gap-2">
+                {(["off", "local", "openai"] as const).map((opt) => (
+                  <label
+                    key={opt}
+                    className="flex items-start gap-3 cursor-default"
+                  >
+                    <div
+                      className="mt-0.5 w-3.5 h-3.5 rounded-full border-2 shrink-0"
+                      style={{
+                        borderColor: "var(--text-muted)",
+                        background: "transparent",
+                      }}
+                      aria-hidden
+                    />
+                    <div>
+                      <p className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                        {opt === "off" && "Deaktiviert (Standard)"}
+                        {opt === "local" && "Lokal (faster-whisper)"}
+                        {opt === "openai" && "OpenAI Whisper API"}
+                      </p>
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        {opt === "off" &&
+                          "Audio-Dateien werden nicht transkribiert. Setze WHISPER_PROVIDER=local oder =openai um Audio zu aktivieren."}
+                        {opt === "local" &&
+                          "Erfordert pip install faster-whisper und einen einmaligen Modell-Download (~500 MB). Verarbeitung bleibt auf deiner Infrastruktur."}
+                        {opt === "openai" && (
+                          <>
+                            <span
+                              className="font-semibold"
+                              style={{ color: "var(--danger)" }}
+                            >
+                              Datenschutz-Hinweis:
+                            </span>{" "}
+                            Audio verlässt deine Infrastruktur. Daten gehen an OpenAI. Erfordert WHISPER_API_KEY.
+                          </>
+                        )}
+                      </p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] pt-2 border-t" style={{ color: "var(--text-muted)", borderColor: "var(--border)" }}>
+                Aktuell: <code style={{ color: "var(--text-secondary)" }}>WHISPER_PROVIDER=off</code> (gelesen beim Server-Start)
+              </p>
+            </div>
+          </div>
         </PageShell>
       </main>
     </div>

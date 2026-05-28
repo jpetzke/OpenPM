@@ -31,6 +31,8 @@ class DocumentResponse(BaseModel):
     replaces_document_id: uuid.UUID | str | None = None
     uploaded_by: uuid.UUID
     uploaded_at: datetime
+    source_format: str | None = None
+    parent_document_id: uuid.UUID | None = None
 
 
 class TextDocumentCreate(BaseModel):

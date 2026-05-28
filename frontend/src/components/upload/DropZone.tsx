@@ -17,7 +17,7 @@ interface DropZoneProps {
 }
 
 const MAX_SIZE = 50 * 1024 * 1024;
-const ALLOWED_HINT = "PDF · DOCX · XLSX · CSV · TXT · MD";
+const ALLOWED_HINT = "PDF · DOCX · XLSX · CSV · TXT · MD · EML · PNG · JPG · WEBP · MP3 · M4A · WAV · OGG";
 
 type ItemStatus = "uploading" | "done" | "error" | "cancelled";
 
@@ -199,7 +199,7 @@ export function DropZone({ projectId }: DropZoneProps) {
           ref={inputRef}
           type="file"
           multiple
-          accept=".pdf,.txt,.md,.markdown,.csv,.docx,.doc,.xlsx,.xls,.rtf,.json,.html,.htm,.log"
+          accept=".pdf,.txt,.md,.markdown,.csv,.docx,.doc,.xlsx,.xls,.rtf,.json,.html,.htm,.log,.eml,.png,.jpg,.jpeg,.webp,.mp3,.m4a,.wav,.ogg"
           onChange={onPick}
           className="sr-only"
         />

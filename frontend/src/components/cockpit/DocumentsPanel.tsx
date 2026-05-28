@@ -4,6 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   FileText,
+  Image as ImageIcon,
+  Mail,
+  Mic,
   Plus,
   X,
   Loader2,
@@ -61,6 +64,14 @@ function StatusIcon({ status }: { status: DocumentStatus }) {
       style={{ color: "var(--text-muted)" }}
     />
   );
+}
+
+function FormatIcon({ sourceFormat }: { sourceFormat: string | null | undefined }) {
+  const color = "var(--text-muted)";
+  if (sourceFormat === "eml") return <Mail size={12} className="shrink-0" style={{ color }} />;
+  if (sourceFormat === "image") return <ImageIcon size={12} className="shrink-0" style={{ color }} />;
+  if (sourceFormat === "audio") return <Mic size={12} className="shrink-0" style={{ color }} />;
+  return <FileText size={12} className="shrink-0" style={{ color }} />;
 }
 
 export function DocumentsPanel({ projectId }: Props) {
@@ -204,6 +215,10 @@ export function DocumentsPanel({ projectId }: Props) {
         new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime(),
     );
 
+  // Parent → children grouping for EML attachments
+  const childIdSet = new Set(sorted.filter((d) => d.parent_document_id).map((d) => d.id));
+  const topLevelDocs = sorted.filter((d) => !childIdSet.has(d.id));
+
   return (
     <section
       className="rounded-lg p-3.5 relative transition-default"
@@ -288,7 +303,7 @@ export function DocumentsPanel({ projectId }: Props) {
         </p>
       ) : (
         <ul className="flex flex-col gap-0.5" data-testid="documents-list">
-          {sorted.map((doc) => (
+          {topLevelDocs.map((doc) => (
             <DocumentRow
               key={doc.id}
               doc={doc}
@@ -360,7 +375,11 @@ function DocumentRow({
       onMouseLeave={() => setHover(false)}
     >
       <div className="flex items-center gap-2">
-        <StatusIcon status={status} />
+        {status === "done" ? (
+          <FormatIcon sourceFormat={doc.source_format} />
+        ) : (
+          <StatusIcon status={status} />
+        )}
         <span className="flex-1 truncate min-w-0">{doc.original_filename}</span>
         {hover || menuOpen ? (
           <div className="flex items-center gap-0.5 shrink-0">

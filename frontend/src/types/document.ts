@@ -35,4 +35,6 @@ export interface Document {
   replaces_document_id: string | null;
   uploaded_by: string;
   uploaded_at: string;
+  source_format: string | null;
+  parent_document_id: string | null;
 }

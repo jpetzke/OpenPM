@@ -43,6 +43,8 @@ def _make_doc(project_id: uuid.UUID, doc_id: uuid.UUID) -> SimpleNamespace:
         summary=None,
         git_commit_hash=None,
         extraction_token_usage=None,
+        source_format=None,
+        parent_document_id=None,
     )
 
 

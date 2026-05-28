@@ -115,14 +115,29 @@ export function DocumentGrid({ projectId }: DocumentGridProps) {
     (a, b) => new Date(b.uploaded_at).getTime() - new Date(a.uploaded_at).getTime(),
   );
 
+  // Build parent → children map for EML attachment grouping
+  const childrenByParent = new Map<string, Document[]>();
+  const childIds = new Set<string>();
+  for (const doc of sorted) {
+    if (doc.parent_document_id) {
+      childIds.add(doc.id);
+      const existing = childrenByParent.get(doc.parent_document_id) ?? [];
+      existing.push(doc);
+      childrenByParent.set(doc.parent_document_id, existing);
+    }
+  }
+  // Top-level: documents that are not children of another doc
+  const topLevel = sorted.filter((d) => !childIds.has(d.id));
+
   return (
     <div className="space-y-2">
-      {sorted.map((doc) => (
+      {topLevel.map((doc) => (
         <DocumentCard
           key={doc.id}
           doc={doc}
           projectId={projectId}
           onDelete={requestDelete}
+          attachments={childrenByParent.get(doc.id) ?? []}
         />
       ))}
     </div>

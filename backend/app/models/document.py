@@ -1,9 +1,10 @@
 import uuid
 from datetime import datetime
+from typing import List, Optional
 
 from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
@@ -55,3 +56,22 @@ class Document(Base):
     extraction_token_usage: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    source_format: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    parent_document_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    # Self-referential relationships for EML attachment grouping
+    parent: Mapped[Optional["Document"]] = relationship(
+        "Document",
+        foreign_keys=[parent_document_id],
+        back_populates="children",
+        remote_side="Document.id",
+    )
+    children: Mapped[List["Document"]] = relationship(
+        "Document",
+        foreign_keys=[parent_document_id],
+        back_populates="parent",
+    )

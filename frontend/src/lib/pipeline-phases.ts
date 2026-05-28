@@ -13,6 +13,9 @@
 
 /** Original Backend-Step → benutzerfreundliches Label (9-Schritt-Modus). */
 export const PIPELINE_STEP_LABELS: Record<string, string> = {
+  // Phase 0 — only shown for audio documents
+  transcribe: "Transkribieren",
+  // Regular pipeline steps
   queued: "Wird vorbereitet",
   parsing: "Datei wird gelesen",
   summarize_extract: "Inhalt wird analysiert",
@@ -42,6 +45,7 @@ export const PIPELINE_PHASE_LABELS = {
 export type PipelinePhase = keyof typeof PIPELINE_PHASE_LABELS;
 
 export const STEP_TO_PHASE: Record<string, PipelinePhase> = {
+  transcribe: "read",
   queued: "read",
   parsing: "read",
   summarize_extract: "analyze",
