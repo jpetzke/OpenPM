@@ -64,7 +64,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | M. Onboarding + Multi-Projekt-Nav | 3 % | 90 / 100 | Onboarding-Wizard + Sidebar-Collapse + Badges + Archiv + New-Project-Modal + seen-Tracking durch; Mobile-Drawer offen |
 | N. Clipboard-Paste | 2 % | 85 / 100 | Page-level Paste-Handler + Multi-Image + editable-Guard live; per-Projekt-Threshold + Chat-Attachment-Karte partial |
 | O. Slash-Commands | 2 % | 100 / 100 | Registry + Popover + 11 Commands + /search-Endpoint + lokale Zero-Token-Messages live |
-| P. Keyboard-Navigation | 2 % | 35 / 100 | Cmd+1/2/3 (deprecated nach Refactor); Cmd+K/N fehlen |
+| P. Keyboard-Navigation | 2 % | 95 / 100 | keybindings.ts single-source + Cmd+K/N/B/,/U// + zweistufiges Esc + IME-Guard + Cheat-Sheet live; Cmd+1/2/3 deprecated |
 | Q. Session/Auth-Lifecycle | 3 % | 40 / 100 | JWT + Blocklist; Refresh + Recovery fehlen |
 | R. Notifications & Recovery | 2 % | 25 / 100 | Toast da; Browser-Push fehlt |
 | S. Bulk-Upload | 2 % | 45 / 100 | Pro-File ok, Gruppierung fehlt |
@@ -754,15 +754,15 @@ Plattform-Konvention: Mac = Cmd, Linux/Windows = Ctrl. Alle Shortcuts dual gebun
 ### ✅ Checkliste
 - [x] CommandPalette-Komponente vorhanden.
 - [~] Cmd+1/2/3 Navigation (deprecated, entfernt nach Cockpit-Migration).
-- [ ] Cmd+K öffnet CommandPalette mit Such-Modus (Projekte + Chats + Dokumente).
-- [ ] Cmd+N startet neue Chat-Session.
-- [ ] Cmd+B toggled Sidebar.
-- [ ] Esc zweistufig: erstes Esc unfokussiert Input → zweites Esc schließt Chat. Modal hat Vorrang.
-- [ ] Cmd+, öffnet Settings (auch unter Linux/Windows, weil Konsistenz wichtiger als reine Plattform-Konvention).
-- [ ] Cmd+U triggert File-Picker.
-- [ ] Cmd+/ als Modal mit Shortcuts-Cheat-Sheet.
-- [ ] Conflict-Vermeidung: Shortcuts feuern nicht wenn IME-Composing (Asiatische Sprachen) aktiv.
-- [ ] Shortcuts global registriert in `frontend/src/lib/keybindings.ts` (eine Quelle der Wahrheit).
+- [x] Cmd+K öffnet CommandPalette mit Such-Modus (Projekte + Chats + Dokumente — `CommandPalette` fetcht docs + sessions des aktiven Projekts, filtert über alle drei).
+- [x] Cmd+N startet neue Chat-Session (global via `openpm:new-chat` Event → `CockpitLayout.handleBackToLanding`).
+- [x] Cmd+B toggled Sidebar (`uiStore.toggleSidebar`, geteilt mit Sidebar-Button).
+- [x] Esc zweistufig: erstes Esc unfokussiert ChatInput → zweites Esc schließt Conversation → Landing. Modals haben Vorrang (capture-phase Esc + stopPropagation).
+- [x] Cmd+, öffnet Settings (`router.push("/settings")`, dual-bound Mac/Linux).
+- [x] Cmd+U triggert File-Picker (`openpm:open-file-picker` Event → ChatInput klickt `fileInputRef`).
+- [x] Cmd+/ öffnet `KeyboardShortcutsModal` (Cheat-Sheet, listet alle Bindings + Esc-Verhalten).
+- [x] Conflict-Vermeidung: `isComposing(e)` Guard (IME / keyCode 229) — Shortcuts feuern nicht mid-composition.
+- [x] Shortcuts global registriert in `frontend/src/lib/keybindings.ts` + `useGlobalKeybindings` Hook (eine Quelle der Wahrheit; `KEY_BINDINGS` speist Cheat-Sheet + Handler).
 
 ---
 

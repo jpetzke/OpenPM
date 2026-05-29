@@ -4,6 +4,13 @@ interface UiState {
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
   setSidebarCollapsed: (value: boolean) => void;
+  // Global overlays driven by keyboard shortcuts (single source: keybindings.ts).
+  commandPaletteOpen: boolean;
+  setCommandPaletteOpen: (value: boolean) => void;
+  toggleCommandPalette: () => void;
+  shortcutsModalOpen: boolean;
+  setShortcutsModalOpen: (value: boolean) => void;
+  toggleShortcutsModal: () => void;
 }
 
 // Read initial value from localStorage synchronously (client-only)
@@ -37,4 +44,10 @@ export const useUiStore = create<UiState>()((set) => ({
       }
       return { sidebarCollapsed: value };
     }),
+  commandPaletteOpen: false,
+  setCommandPaletteOpen: (value) => set({ commandPaletteOpen: value }),
+  toggleCommandPalette: () => set((s) => ({ commandPaletteOpen: !s.commandPaletteOpen })),
+  shortcutsModalOpen: false,
+  setShortcutsModalOpen: (value) => set({ shortcutsModalOpen: value }),
+  toggleShortcutsModal: () => set((s) => ({ shortcutsModalOpen: !s.shortcutsModalOpen })),
 }));

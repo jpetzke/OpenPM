@@ -78,16 +78,34 @@ export function CockpitLayout({ projectId }: Props) {
     }
   }, [currentSessionId, streaming, sending, optimisticMessages.length]);
 
-  // Cmd+N / Ctrl+N — new chat (back to landing).
+  // Keep the latest viewMode in a ref so the keyboard effect (empty deps) reads
+  // current state without re-subscribing.
+  const viewModeRef = useRef(viewMode);
+  viewModeRef.current = viewMode;
+
+  // New-chat is triggered globally via Cmd/Ctrl+N (useGlobalKeybindings emits
+  // the `openpm:new-chat` event). Esc is two-stage: first unfocus the chat
+  // input, then (input already blurred) close the conversation → landing.
+  // Open modals consume Esc first (capture-phase listeners with stopPropagation).
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === "n" && !e.shiftKey) {
-        e.preventDefault();
+    const onNewChat = () => handleBackToLanding();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest?.("[data-chat-input]")) {
+        active.blur();
+        return;
+      }
+      if (viewModeRef.current === "conversation") {
         handleBackToLanding();
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    window.addEventListener("openpm:new-chat", onNewChat);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("openpm:new-chat", onNewChat);
+      window.removeEventListener("keydown", onKey);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

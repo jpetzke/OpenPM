@@ -65,6 +65,14 @@ export function ChatInput({
     setIsMobile("ontouchstart" in window);
   }, []);
 
+  // Cmd/Ctrl+U (global keybinding) dispatches this event; open the file picker.
+  useEffect(() => {
+    if (!projectId) return;
+    const open = () => fileInputRef.current?.click();
+    window.addEventListener("openpm:open-file-picker", open);
+    return () => window.removeEventListener("openpm:open-file-picker", open);
+  }, [projectId]);
+
   const clearInput = useCallback(() => {
     if (ref.current) {
       ref.current.value = "";

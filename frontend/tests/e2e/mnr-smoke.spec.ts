@@ -57,6 +57,45 @@ test.describe("Section M — sidebar + onboarding", () => {
   });
 });
 
+test.describe("Section P — keyboard navigation", () => {
+  test("Cmd/Ctrl+/ opens the shortcuts cheat-sheet", async ({ page }) => {
+    await injectAuth(page);
+    await page.goto(`/projects/${PROJECT_ID}`);
+    await page.waitForLoadState("load");
+    await page.locator("body").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("Control+/");
+    await expect(page.getByText(/^Tastenkürzel$/).first()).toBeVisible({ timeout: 10_000 });
+    await page.keyboard.press("Escape");
+  });
+
+  test("Cmd/Ctrl+K opens the command palette", async ({ page }) => {
+    await injectAuth(page);
+    await page.goto(`/projects/${PROJECT_ID}`);
+    await page.waitForLoadState("load");
+    await page.locator("body").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("Control+k");
+    await expect(page.getByPlaceholder(/Projekte, Chats, Dokumente/i)).toBeVisible({
+      timeout: 10_000,
+    });
+    await page.keyboard.press("Escape");
+  });
+
+  test("Cmd/Ctrl+B toggles the sidebar", async ({ page }) => {
+    await injectAuth(page);
+    await page.goto(`/projects/${PROJECT_ID}`);
+    await page.waitForLoadState("load");
+    const toggle = page.getByRole("button", { name: /Sidebar (ein|aus)klappen/i }).first();
+    await expect(toggle).toBeVisible({ timeout: 15_000 });
+    const before = await toggle.getAttribute("aria-label");
+    await page.locator("body").click({ position: { x: 5, y: 5 } });
+    await page.keyboard.press("Control+b");
+    await expect(async () => {
+      const after = await toggle.getAttribute("aria-label");
+      expect(after).not.toEqual(before);
+    }).toPass({ timeout: 5_000 });
+  });
+});
+
 test.describe("Section O — slash commands", () => {
   test("typing /help opens popover and Enter renders a local message", async ({ page }) => {
     await injectAuth(page);
@@ -68,7 +107,9 @@ test.describe("Section O — slash commands", () => {
     await ta.click();
     // Typing just "/" lists all commands in the popover
     await ta.pressSequentially("/");
-    await expect(page.getByRole("option").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("listbox", { name: /Slash-Befehle/i })).toBeVisible({
+      timeout: 10_000,
+    });
     await expect(page.getByText("/status").first()).toBeVisible();
 
     // Narrow to /help and execute

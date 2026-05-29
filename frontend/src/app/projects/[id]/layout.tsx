@@ -5,8 +5,10 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { useProjectSSE } from "@/hooks/useProjectSSE";
+import { useGlobalKeybindings } from "@/hooks/useGlobalKeybindings";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { CommandPalette } from "@/components/layout/CommandPalette";
+import { KeyboardShortcutsModal } from "@/components/layout/KeyboardShortcutsModal";
 import { GlobalStatusBar } from "@/components/layout/GlobalStatusBar";
 import type { Project } from "@/types/project";
 
@@ -25,6 +27,7 @@ export default function ProjectLayout({
   const seenCalledRef = useRef(false);
 
   useProjectSSE(id);
+  useGlobalKeybindings();
 
   useEffect(() => {
     if (hasHydrated && !token) router.push("/login");
@@ -62,6 +65,7 @@ export default function ProjectLayout({
         </main>
       </div>
       <CommandPalette currentProjectId={id} />
+      <KeyboardShortcutsModal />
     </div>
   );
 }
