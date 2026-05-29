@@ -2,8 +2,8 @@
 
 > Lebendes Referenz-Dokument. Definiert pro Feature/Detail den absolut perfekten Zielzustand, hält den aktuellen Ist-Stand fest und listet messbare Akzeptanz-Kriterien als Checkliste. Wird über viele Sessions hinweg fortgeschrieben.
 >
-> **Last update:** 2026-05-28 (J/K/L durch) · **Stand:** OpenPM @ `main` (`269a5cf` — J/K/L gemerged + verifiziert)
-> **Aktueller Gesamt-Score:** **82 / 100** (A/B/C/D/E/F + G/H/I + J Briefing-Cap + K Token-Budget + L Format-Support durch; Whisper-local-Default + ARQ-Cron-Aggregator deferred)
+> **Last update:** 2026-05-29 (M/N/O/P/Q/R durch) · **Stand:** OpenPM @ `main` (M–R seriell gemerged + browser-verifiziert)
+> **Aktueller Gesamt-Score:** **90 / 100** (A–L + M Onboarding/Nav + N Paste + O Slash-Commands + P Keyboard + Q Auth-Refresh + R Notifications durch; Mobile-Drawer/Phase-2-Cookie/Whisper-Bundle deferred; verbleibend S/T/U/V/W + Polish)
 
 ---
 
@@ -74,13 +74,38 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | W. Nicht-funktional (DevOps/Tests/Obs) | 4 % | 60 / 100 | Docker + Alembic + E2E vorhanden; Observability fehlt |
 | **Summe** | **100 %** | — | — |
 
-**Gesamt-Score: 82 / 100.** Berechnung: Σ Bereich × Gewicht ≈ 82. Sprung gegenüber 72 stammt aus J/K/L-Welle (Briefing tiktoken-Cap + Slot-Priorisierung + Cache-Skip · Token-Usage-Capture in llm.py + ChatMessage/Document JSONB + /usage Endpoint + Budget Hard/Soft + Dashboard · Format-Support EML/Image-OCR/Audio-Provider-Abstraction + source_format/parent_document_id + Icons). Restliche Punkte zu 100 liegen in: K (ARQ-Hourly-Cron-Aggregator), L (Whisper local-default + Bundle), M (Onboarding-Wizard), O (Slash-Commands), P (Cmd+K/N/B Mapping), Q (Refresh + Recovery), R (Browser-Push), T (Stale-Cron), U (Export), W (Observability/Backup).
+**Gesamt-Score: 90 / 100.** Berechnung: Σ Bereich × Gewicht ≈ 90. Sprung gegenüber 82 stammt aus M/N/O/P/Q/R-Welle (Onboarding-Wizard + Multi-Projekt-Nav · Page-Paste · Slash-Commands + /search-Endpoint · zentrale Keybindings · Auth-Refresh-Lifecycle · Browser-Notifications). Verbleibend zu 100: S (Bulk-Gruppierung), T (Stale-Cron), U (Export/ZIP), V (Timing-Tokens), W (Observability/CI/Backup) + Deferrals (Mobile-Drawer, Auth-Phase-2-Cookie, Whisper-Bundle).
+
+**(historisch) Gesamt-Score: 82 / 100.** Sprung gegenüber 72 stammt aus J/K/L-Welle (Briefing tiktoken-Cap + Slot-Priorisierung + Cache-Skip · Token-Usage-Capture in llm.py + ChatMessage/Document JSONB + /usage Endpoint + Budget Hard/Soft + Dashboard · Format-Support EML/Image-OCR/Audio-Provider-Abstraction + source_format/parent_document_id + Icons). Restliche Punkte zu 100 liegen in: K (ARQ-Hourly-Cron-Aggregator), L (Whisper local-default + Bundle), M (Onboarding-Wizard), O (Slash-Commands), P (Cmd+K/N/B Mapping), Q (Refresh + Recovery), R (Browser-Push), T (Stale-Cron), U (Export), W (Observability/Backup).
 
 Score-Update-Pflicht: bei jedem PR der Items abhakt → Bereich-Score neu berechnen (`erfüllte Items / Gesamt-Items × 100`), dann Gesamt neu summieren. Helfer-Skript siehe Sektion 5.
 
 ---
 
 ## 2.1 Session-Log
+
+### 2026-05-29 — M + N + O + P + Q + R Sweep
+
+**Vorgehen:** Seriell (eine Sektion nach der anderen, Commit dazwischen) gemäß Multi-Section-Sweep-Protokoll — alle 6 Sektionen fassen geteilte Frontend-Files an (ChatInput, CockpitLayout, AppSidebar, layout.tsx, api.ts, uiStore). Backend-Contract + Migrations + Wiring-Verifikation durch Opus-Main-Thread; chunkige UI-Builds (M, O, Q-Frontend) an Sonnet-Subagents delegiert, danach Render-Tree-Grep + tsc + Browser-Smoke verifiziert. Kein Worktree, keine Parallelität, keine Merge-Konflikte.
+
+- **M Onboarding + Multi-Projekt-Nav** (35→90) — Alembic `0016` (`projects.archived_at` + partial index `ix_projects_active`, `user_project_views` Tabelle). `list_projects` filtert archived default + `?include_archived`; `ProjectResponse` + `archived_at`/`failed_document_count`/`unread_change_count`; `POST /projects/{id}/{seen,archive,unarchive}`. Frontend: Sidebar-Collapse (`uiStore` + localStorage), per-Projekt-Badges, Archiv-Sektion, Row-Kebab, `NewProjectModal`, seen-on-mount, `/onboarding` 3-Step-Wizard (Provider→Test+Latenz→Projekt), First-Login-Redirect. Mobile-Drawer deferred.
+- **N Clipboard-Paste** (70→85) — Page-level `paste`-Handler in CockpitLayout (skippt editable Targets → ChatInput behält Fokus-Paste), Multi-Image-Upload, jedes nicht-leere Text-Paste außerhalb editable → TextPasteModal. `lib/ui-config.ts` `PASTE_THRESHOLD_CHARS`. Per-Projekt-Threshold + Chat-Attachment-Karte partial.
+- **O Slash-Commands** (0→100) — `lib/slash-commands.ts` Registry (11 Commands), `SlashCommandPopover`, ChatInput-Keyboard-Nav, `CockpitLayout.handleSlashCommand` (lokale `is_local_command`-Messages „lokal · 0 Token"). Backend `POST /api/projects/{id}/search` (Qdrant, kein LLM). `/export` = client-side briefing.md.
+- **P Keyboard-Navigation** (35→95) — `lib/keybindings.ts` single-source + `useGlobalKeybindings` Hook: Cmd+K/N/B/,/U//. `KeyboardShortcutsModal` (Cmd+/), zweistufiges Esc, IME-Guard, Cross-Component via CustomEvents. CommandPalette uiStore-controlled + sucht Projekte/Chats/Dokumente.
+- **Q Auth-Lifecycle Phase 1** (40→90) — Alembic `0017` `refresh_tokens` (token_hash SHA-256). Login gibt refresh_token; `POST /auth/refresh` (non-rotating); logout revoked. Frontend: `authClient.ts` (refresh-dedupe + BroadcastChannel cross-tab), api.ts 401-Silent-Refresh-Interceptor + Retry, `useTokenRefresh` (5min vor exp), Message-Puffer + Replay-on-mount. Phase 2 (HttpOnly-Cookie/CSRF) deferred.
+- **R Notifications** (25→100) — `lib/notifications.ts` + `NotificationSettings` Opt-in. `useProjectSSE` notify bei `document_complete`/`document_failed` wenn `document.hidden`; tag=project_id, click→`#document-{id}`, failed→requireInteraction.
+
+**Score-Effekt:** M 35→90 (+1.65), N 70→85 (+0.30), O 0→100 (+2.00), P 35→95 (+1.20), Q 40→90 (+1.50), R 25→100 (+1.50). **Gesamt 82 → 90.**
+
+**Test-Bilanz:** Backend pytest **421 passed / 2 pre-existing failures** (`test_config.embedding_dimension`, unrelated) / 1 skipped — inkl. 9 neuer Tests (`test_projects_archive.py` 4, `test_auth_refresh.py` 5). Frontend `tsc --noEmit` clean, ESLint clean. Playwright `mnr-smoke.spec.ts` **9/9 grün** (M Sidebar+Modal+Onboarding, P Cheat-Sheet+Palette+Sidebar-Toggle, Q UI-Login-Refresh-Persist + /refresh-Endpoint, R Notif-Opt-in, O Popover+Local-Message). Alembic head = `0017`. Live-curl-Validierung aller neuen Backend-Endpoints (archive/seen/badge, /search, refresh→logout→401).
+
+**Offen / Follow-ups:**
+- M: Mobile-Sidebar-Drawer (Hamburger) offen; AppSidebar-Projekt-Links zeigen noch auf `/upload`-Redirect-Stub statt `/projects/{id}`.
+- N: per-Projekt `paste_threshold_chars` DB-Override + Chat-Image-Attachment-Karte (Sektion B) deferred.
+- Q: Phase 2 (Refresh-Token in HttpOnly-Cookie + CSRF) deferred.
+- O: lokale Command-Messages sind ephemer (verschwinden bei nächstem echten Send / Reload) — by design.
+
+---
 
 ### 2026-05-28 — J + K + L Sweep
 
