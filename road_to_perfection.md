@@ -66,7 +66,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | O. Slash-Commands | 2 % | 100 / 100 | Registry + Popover + 11 Commands + /search-Endpoint + lokale Zero-Token-Messages live |
 | P. Keyboard-Navigation | 2 % | 95 / 100 | keybindings.ts single-source + Cmd+K/N/B/,/U// + zweistufiges Esc + IME-Guard + Cheat-Sheet live; Cmd+1/2/3 deprecated |
 | Q. Session/Auth-Lifecycle | 3 % | 90 / 100 | Refresh-Token-Tabelle + /refresh + Silent-Refresh-Interceptor + 5min-Timer + Message-Puffer + BroadcastChannel + Logout-Revoke live; Phase 2 (HttpOnly-Cookie/CSRF) deferred |
-| R. Notifications & Recovery | 2 % | 25 / 100 | Toast da; Browser-Push fehlt |
+| R. Notifications & Recovery | 2 % | 100 / 100 | Browser-Notification Opt-in + Complete/Failed-Hook (tab-hidden) + Click-to-Doc + per-Projekt-Tag + requireInteraction live |
 | S. Bulk-Upload | 2 % | 45 / 100 | Pro-File ok, Gruppierung fehlt |
 | T. Stale Detection | 2 % | 0 / 100 | Kein Cron |
 | U. Export | 2 % | 0 / 100 | Komplett fehlend |
@@ -813,12 +813,12 @@ JWT (Access-Token) mit 24 h TTL + Refresh-Token mit 30 d TTL. Silent Refresh 5 m
 
 ### ✅ Checkliste
 - [x] Toast-Infra.
-- [ ] Settings-Page: einzelner „Browser-Notifications aktivieren"-Button. Klick triggert `Notification.requestPermission()`. Bei `granted` → Status-Anzeige „aktiv".
-- [ ] Pipeline-Complete-Hook im Frontend (im `useProjectSSE`): wenn `document.hidden === true` und Permission `granted` → `new Notification("OpenPM", {body: "brief.pdf fertig — 3 Tasks extrahiert", icon, tag: project_id})`.
-- [ ] `tag` parameter verhindert Stacking gleicher Projekt-Notifications.
-- [ ] Notification-Click handler: fokussiert Tab + scrollt zum Doc-Card (window.focus + DOM-anchor).
-- [ ] Multi-Projekt: pro Projekt eigener Notification-Tag.
-- [ ] Failed-Pipeline-Notification rot-Akzent (per `requireInteraction: true` damit User es sieht).
+- [x] Settings-Page: `NotificationSettings` „Aktivieren"-Button → `Notification.requestPermission()`; `granted` → „✓ Aktiv", `denied`/`unsupported` States. (`lib/notifications.ts`.)
+- [x] Pipeline-Complete-Hook in `useProjectSSE` (`document_complete`): wenn `document.hidden` und Permission `granted` → `notify("OpenPM", {body: "{file} fertig — N Tasks, M Deadlines extrahiert", tag: project_id})`.
+- [x] `tag = project_id` verhindert Stacking gleicher Projekt-Notifications.
+- [x] Notification-Click: `window.focus()` + scrollt zu `#document-{id}` (DocumentRow hat jetzt `id`), Fallback `#docs`.
+- [x] Multi-Projekt: Tag = `project_id`, pro Projekt eigener Tag.
+- [x] Failed-Pipeline (`document_failed` + hidden): Notification mit `requireInteraction: true`.
 
 ### ⚖️ Decisions
 - **Kein Service-Worker für v1.** Web Notifications API direkt reicht. Service-Worker erst wenn echte Tab-Close-Tolerance gewünscht — dann eigene Roadmap-Item.

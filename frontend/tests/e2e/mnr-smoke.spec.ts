@@ -125,6 +125,22 @@ test.describe("Section Q — auth lifecycle", () => {
   });
 });
 
+test.describe("Section R — browser notifications", () => {
+  test("settings page exposes the notification opt-in", async ({ page }) => {
+    await injectAuth(page);
+    await page.goto(`/settings`);
+    await page.waitForLoadState("load");
+    await expect(page.getByText(/Browser-Benachrichtigungen/i).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    // opt-in control present (Aktivieren button, or an already-granted/unsupported state)
+    const optin = page.getByRole("button", { name: /^Aktivieren$/ });
+    const granted = page.getByText(/✓ Aktiv/);
+    const unsupported = page.getByText(/nicht unterstützt/i);
+    await expect(optin.or(granted).or(unsupported).first()).toBeVisible({ timeout: 10_000 });
+  });
+});
+
 test.describe("Section O — slash commands", () => {
   test("typing /help opens popover and Enter renders a local message", async ({ page }) => {
     await injectAuth(page);

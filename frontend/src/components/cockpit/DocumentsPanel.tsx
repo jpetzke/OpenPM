@@ -363,6 +363,7 @@ function DocumentRow({
 
   return (
     <li
+      id={`document-${doc.id}`}
       data-testid="document-row"
       data-status={status}
       className="flex flex-col gap-1 px-1.5 py-1.5 rounded text-[13px] transition-default cursor-default"

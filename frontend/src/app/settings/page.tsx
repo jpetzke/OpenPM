@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { PageShell } from "@/components/layout/PageShell";
+import { NotificationSettings } from "@/components/settings/NotificationSettings";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   ActiveSummary,
@@ -710,6 +711,11 @@ export default function SettingsPage() {
                 Aktuell: <code style={{ color: "var(--text-secondary)" }}>WHISPER_PROVIDER=off</code> (gelesen beim Server-Start)
               </p>
             </div>
+          </div>
+
+          {/* ── Browser-Benachrichtigungen (Sektion R) ─────────────────────── */}
+          <div className="mt-8">
+            <NotificationSettings />
           </div>
         </PageShell>
       </main>

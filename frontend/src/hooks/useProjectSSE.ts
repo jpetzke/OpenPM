@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { useAuthStore } from "@/store/authStore";
+import { notify } from "@/lib/notifications";
 import {
   type ChangeSessionInfo,
   type ExtractedItem,
@@ -256,6 +257,22 @@ export function useProjectSSE(projectId: string) {
             kind: "document",
             changeSessionId: sessionId,
           });
+          // Browser notification when the tab isn't focused (roadmap R).
+          if (typeof document !== "undefined" && document.hidden) {
+            const detail = summary
+              ? `${summary.tasks_added} Tasks, ${summary.deadlines_added} Deadlines extrahiert`
+              : "Verarbeitung abgeschlossen";
+            notify({
+              title: "OpenPM",
+              body: `${filename ?? "Dokument"} fertig — ${detail}`,
+              tag: projectId,
+              onClick: () => {
+                const el = document.getElementById(`document-${documentId}`);
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                else window.location.hash = "#docs";
+              },
+            });
+          }
           qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
           qc.invalidateQueries({ queryKey: ["projects", projectId, "state"] });
           qc.invalidateQueries({ queryKey: ["projects", projectId, "change-session"] });
@@ -277,6 +294,19 @@ export function useProjectSSE(projectId: string) {
             kind: "document",
           });
           toast.error(`Verarbeitung fehlgeschlagen: ${data.error || "Unbekannter Fehler"}`);
+          if (typeof document !== "undefined" && document.hidden) {
+            notify({
+              title: "OpenPM — Fehler",
+              body: `${filename ?? "Dokument"}: ${data.error || "Verarbeitung fehlgeschlagen"}`,
+              tag: projectId,
+              requireInteraction: true,
+              onClick: () => {
+                const el = document.getElementById(`document-${documentId}`);
+                if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                else window.location.hash = "#docs";
+              },
+            });
+          }
           qc.invalidateQueries({ queryKey: ["projects", projectId, "documents"] });
           return;
 
