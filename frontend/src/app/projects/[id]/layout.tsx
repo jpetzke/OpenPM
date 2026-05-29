@@ -6,6 +6,8 @@ import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { useProjectSSE } from "@/hooks/useProjectSSE";
 import { useGlobalKeybindings } from "@/hooks/useGlobalKeybindings";
+import { useTokenRefresh } from "@/hooks/useTokenRefresh";
+import { startBroadcastChannelListener } from "@/lib/authClient";
 import { AppSidebar } from "@/components/layout/AppSidebar";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { KeyboardShortcutsModal } from "@/components/layout/KeyboardShortcutsModal";
@@ -28,6 +30,13 @@ export default function ProjectLayout({
 
   useProjectSSE(id);
   useGlobalKeybindings();
+  useTokenRefresh();
+
+  // Start cross-tab BroadcastChannel listener once per layout mount
+  useEffect(() => {
+    const stop = startBroadcastChannelListener();
+    return stop;
+  }, []);
 
   useEffect(() => {
     if (hasHydrated && !token) router.push("/login");

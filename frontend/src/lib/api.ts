@@ -7,6 +7,11 @@ export interface ApiError {
   detail?: string;
 }
 
+/** Paths that must not trigger a token refresh on 401 (avoid loops). */
+function isAuthPath(path: string): boolean {
+  return path.startsWith("/api/auth/");
+}
+
 async function request<T>(
   path: string,
   options: RequestInit = {},
@@ -23,9 +28,43 @@ async function request<T>(
 
   const res = await fetch(path, { ...options, headers });
 
-  if (res.status === 401) {
+  if (res.status === 401 && !isAuthPath(path)) {
+    // Attempt a silent token refresh (concurrent callers share one in-flight promise)
+    const { refreshAccessToken } = await import("@/lib/authClient");
+    const newToken = await refreshAccessToken();
+
+    if (newToken) {
+      // Retry the original request once with the fresh token
+      const retryHeaders: Record<string, string> = {
+        ...(options.headers as Record<string, string>),
+      };
+      retryHeaders["Authorization"] = `Bearer ${newToken}`;
+      if (!(options.body instanceof FormData)) {
+        retryHeaders["Content-Type"] = "application/json";
+      }
+      const retryRes = await fetch(path, { ...options, headers: retryHeaders });
+      if (retryRes.status === 401) {
+        // Even after refresh the request is unauthorised — give up
+        useAuthStore.getState().clearAuth();
+        toast.error("Sitzung abgelaufen — bitte neu einloggen");
+        if (typeof window !== "undefined") window.location.href = "/login";
+        throw { status: 401, message: "Unauthorized" } as ApiError;
+      }
+      // Propagate non-401 errors from the retry normally (fall through)
+      if (retryRes.status === 204) return undefined as T;
+      if (retryRes.ok) return retryRes.json() as Promise<T>;
+      const body = await retryRes.json().catch(() => ({}));
+      throw { status: retryRes.status, message: (body as Record<string, string>).detail || "Request failed", detail: (body as Record<string, string>).detail } as ApiError;
+    }
+
+    // Refresh failed — clear session and redirect
     useAuthStore.getState().clearAuth();
+    toast.error("Sitzung abgelaufen — bitte neu einloggen");
     if (typeof window !== "undefined") window.location.href = "/login";
+    throw { status: 401, message: "Unauthorized" } as ApiError;
+  }
+
+  if (res.status === 401 && isAuthPath(path)) {
     throw { status: 401, message: "Unauthorized" } as ApiError;
   }
   if (res.status === 403) {

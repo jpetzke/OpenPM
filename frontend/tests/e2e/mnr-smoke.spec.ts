@@ -96,6 +96,35 @@ test.describe("Section P — keyboard navigation", () => {
   });
 });
 
+test.describe("Section Q — auth lifecycle", () => {
+  test("UI login persists a refresh token in authStore", async ({ page }) => {
+    await page.goto("/login", { waitUntil: "domcontentloaded" });
+    await page.locator('input[type="email"]').first().fill(EMAIL);
+    await page.locator('input[type="password"]').first().fill(PASSWORD);
+    await page.getByRole("button", { name: /Anmelden/i }).first().click();
+    // After login we leave /login
+    await page.waitForURL((u) => !u.pathname.startsWith("/login"), { timeout: 15_000 });
+    const stored = await page.evaluate(() => localStorage.getItem("openpm-auth"));
+    expect(stored).toBeTruthy();
+    const parsed = JSON.parse(stored as string);
+    expect(parsed.state.token).toBeTruthy();
+    expect(parsed.state.refreshToken).toBeTruthy();
+  });
+
+  test("/api/auth/refresh issues a fresh access token", async ({ page }) => {
+    const login = await page.request.post(`${BACKEND_URL}/api/auth/login`, {
+      data: { email: EMAIL, password: PASSWORD },
+    });
+    const { refresh_token } = await login.json();
+    const refreshed = await page.request.post(`${BACKEND_URL}/api/auth/refresh`, {
+      data: { refresh_token },
+    });
+    expect(refreshed.ok()).toBeTruthy();
+    const body = await refreshed.json();
+    expect(body.access_token).toBeTruthy();
+  });
+});
+
 test.describe("Section O — slash commands", () => {
   test("typing /help opens popover and Enter renders a local message", async ({ page }) => {
     await injectAuth(page);

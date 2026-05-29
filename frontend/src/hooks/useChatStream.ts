@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useAuthStore } from "@/store/authStore";
+import { refreshAccessToken } from "@/lib/authClient";
 import { toast } from "sonner";
 import type { ChatStreamState, ActiveToolCall, MutationCardData } from "@/types/chat";
 
@@ -38,7 +39,7 @@ export function useChatStream(projectId: string) {
   const queuedText = useRef("");
   const rafRef = useRef<number | null>(null);
   const streamClosedRef = useRef(false);
-  const completionRef = useRef<((assistantMessage: string, success: boolean) => void) | null>(null);
+  const completionRef = useRef<((assistantMessage: string, success: boolean, errorCode?: string) => void) | null>(null);
   const fullTextRef = useRef("");
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -101,7 +102,7 @@ export function useChatStream(projectId: string) {
   const sendMessage = useCallback(
     async (
       content: string,
-      onComplete: (assistantMessage: string, success: boolean) => void,
+      onComplete: (assistantMessage: string, success: boolean, errorCode?: string) => void,
       selectedModel?: string,
     ) => {
       // Clean up any previous stream.
@@ -119,16 +120,42 @@ export function useChatStream(projectId: string) {
         const body: Record<string, unknown> = { content };
         if (selectedModel) body.model = selectedModel;
         if (currentSessionId) body.session_id = currentSessionId;
+        const bodyStr = JSON.stringify(body);
 
-        const res = await fetch(`/api/projects/${projectId}/chat`, {
+        let effectiveToken = token;
+        let res = await fetch(`/api/projects/${projectId}/chat`, {
           method: "POST",
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${effectiveToken}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify(body),
+          body: bodyStr,
           signal: controller.signal,
         });
+
+        // On 401 attempt a silent token refresh then retry once
+        if (res.status === 401) {
+          const newToken = await refreshAccessToken();
+          if (newToken) {
+            effectiveToken = newToken;
+            res = await fetch(`/api/projects/${projectId}/chat`, {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${newToken}`,
+                "Content-Type": "application/json",
+              },
+              body: bodyStr,
+              signal: controller.signal,
+            });
+          }
+          // If still 401 after refresh (or refresh failed), signal auth failure
+          if (res.status === 401) {
+            completionRef.current = null;
+            setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: { code: "auth_expired", message: "Sitzung abgelaufen" } });
+            onComplete("", false, "auth_expired");
+            return;
+          }
+        }
 
         if (!res.ok || !res.body) {
           completionRef.current = null;

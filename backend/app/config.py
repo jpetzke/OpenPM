@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     secret_key: str = "changeme-min-32-chars-placeholder-x"
     openpm_encryption_key: str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     access_token_expire_days: int = 7
+    refresh_token_expire_days: int = 30
 
     frontend_url: str = "http://localhost:3000"
     max_upload_bytes: int = 52428800

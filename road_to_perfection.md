@@ -65,7 +65,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | N. Clipboard-Paste | 2 % | 85 / 100 | Page-level Paste-Handler + Multi-Image + editable-Guard live; per-Projekt-Threshold + Chat-Attachment-Karte partial |
 | O. Slash-Commands | 2 % | 100 / 100 | Registry + Popover + 11 Commands + /search-Endpoint + lokale Zero-Token-Messages live |
 | P. Keyboard-Navigation | 2 % | 95 / 100 | keybindings.ts single-source + Cmd+K/N/B/,/U// + zweistufiges Esc + IME-Guard + Cheat-Sheet live; Cmd+1/2/3 deprecated |
-| Q. Session/Auth-Lifecycle | 3 % | 40 / 100 | JWT + Blocklist; Refresh + Recovery fehlen |
+| Q. Session/Auth-Lifecycle | 3 % | 90 / 100 | Refresh-Token-Tabelle + /refresh + Silent-Refresh-Interceptor + 5min-Timer + Message-Puffer + BroadcastChannel + Logout-Revoke live; Phase 2 (HttpOnly-Cookie/CSRF) deferred |
 | R. Notifications & Recovery | 2 % | 25 / 100 | Toast da; Browser-Push fehlt |
 | S. Bulk-Upload | 2 % | 45 / 100 | Pro-File ok, Gruppierung fehlt |
 | T. Stale Detection | 2 % | 0 / 100 | Kein Cron |
@@ -786,16 +786,16 @@ JWT (Access-Token) mit 24 h TTL + Refresh-Token mit 30 d TTL. Silent Refresh 5 m
 
 ### ✅ Checkliste
 - [x] JWT + Blocklist.
-- [ ] Phase 1: Refresh-Token-Modell (`refresh_tokens` Tabelle: id, user_id, expires_at, revoked_at, last_used_at).
-- [ ] Phase 1: `POST /auth/refresh` Endpoint (input: refresh_token; output: neues JWT).
-- [ ] Phase 1: `authStore` persistiert Refresh-Token im localStorage.
-- [ ] Phase 1: Frontend Refresh-Timer 5 min vor JWT-Ablauf (`exp` claim).
-- [ ] 401-Interceptor im `lib/api.ts` versucht Silent-Refresh; bei Erfolg Request retryen mit neuem Token.
-- [ ] Bei finalem Auth-Fail: Toast + Message-Puffer in localStorage (`pending_chat_messages` Map, Key = `{project_id}:{session_id}:{timestamp}`) + Redirect Login.
-- [ ] Nach Re-Login: Puffer-Inhalt für aktuelles Projekt wird beim Mount automatisch durch-iteriert (älteste zuerst).
-- [ ] Multi-Tab: Puffer-Key inkludiert Timestamp → Last-Write-Wins-Race vermieden. Bei Refresh wird zentral via `BroadcastChannel` zwischen Tabs synchronisiert (vermeidet 5 parallele Refresh-Calls).
-- [ ] Logout invalidiert Refresh-Token (DB-Update `revoked_at = now()`).
-- [ ] Phase 2: Refresh-Token wandert in HttpOnly-Cookie. CSRF-Token in Response-Header.
+- [x] Phase 1: Refresh-Token-Modell (`refresh_tokens`: id, user_id, token_hash (SHA-256, raw nie gespeichert), expires_at, revoked_at, last_used_at, created_at). Alembic `0017`.
+- [x] Phase 1: `POST /api/auth/refresh` (input refresh_token → neues Access-JWT; 401 bei invalid/expired/revoked; non-rotating für Multi-Tab-Safety). Login + gibt jetzt `refresh_token` zurück.
+- [x] Phase 1: `authStore.refreshToken` persistiert in localStorage (`openpm-auth`).
+- [x] Phase 1: `useTokenRefresh` Hook schedult Refresh 5 min vor `exp` (JWT decode), reschedult bei Token-Wechsel.
+- [x] 401-Interceptor in `lib/api.ts`: Silent-Refresh (dedup via in-flight Promise) + Retry des Original-Requests einmal; Auth-Pfade gebypassed (kein Loop).
+- [x] Bei finalem Auth-Fail: Toast „Sitzung abgelaufen" + Message-Puffer `pending_chat_messages` (Key `{project}:{session}:{ts}`) + Redirect Login. `useChatStream` signalisiert `auth_expired` → `CockpitLayout.handleSend` puffert.
+- [x] Nach Re-Login: `takePendingMessages(projectId)` beim CockpitLayout-Mount, Replay älteste-zuerst (200 ms Stagger).
+- [x] Multi-Tab: Puffer-Key mit Timestamp; `BroadcastChannel("openpm-auth")` synct refreshed Token zwischen Tabs (vermeidet parallele Refresh-Calls).
+- [x] Logout invalidiert Refresh-Token (`revoke_refresh_token` setzt `revoked_at`); AppSidebar sendet `{refresh_token}` im Logout-Body.
+- [ ] Phase 2: Refresh-Token in HttpOnly-Cookie + CSRF — deferred (Phase 1 localStorage-Flow steht).
 
 ---
 

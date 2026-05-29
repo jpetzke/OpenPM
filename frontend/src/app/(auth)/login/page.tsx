@@ -28,12 +28,13 @@ export default function LoginPage() {
   const onSubmit = async (data: FormData) => {
     setLoading(true);
     try {
-      const { access_token } = await api.post<{ access_token: string; token_type: string }>(
-        "/api/auth/login",
-        { email: data.email, password: data.password }
-      );
+      const { access_token, refresh_token } = await api.post<{
+        access_token: string;
+        refresh_token: string;
+        token_type: string;
+      }>("/api/auth/login", { email: data.email, password: data.password });
       const user = await api.getWithToken<User>("/api/auth/me", access_token);
-      setAuth(user, access_token);
+      setAuth(user, access_token, refresh_token);
       router.push("/projects");
     } catch (err: unknown) {
       const e = err as { message?: string };

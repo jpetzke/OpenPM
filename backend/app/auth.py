@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -14,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.database import get_db
 from app.models.project import ProjectMember
-from app.models.user import User
+from app.models.user import RefreshToken, User
 
 _bearer = HTTPBearer()
 
@@ -81,6 +83,56 @@ async def logout_token(token: str) -> None:
                 await redis.setex(f"blocklist:{jti}", ttl, "1")
     except JWTError:
         pass
+
+
+def _hash_refresh(raw: str) -> str:
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+async def create_refresh_token(db: AsyncSession, user_id: uuid.UUID) -> str:
+    """Generate an opaque refresh token, persist its hash, return the raw token."""
+    raw = secrets.token_urlsafe(48)
+    expire = datetime.now(timezone.utc) + timedelta(days=settings.refresh_token_expire_days)
+    db.add(
+        RefreshToken(user_id=user_id, token_hash=_hash_refresh(raw), expires_at=expire)
+    )
+    await db.commit()
+    return raw
+
+
+async def verify_refresh_token(db: AsyncSession, raw: str) -> User | None:
+    """Validate a refresh token (exists, not revoked, not expired). Updates
+    last_used_at on success. Returns the owning user or None."""
+    row = (
+        await db.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw))
+        )
+    ).scalar_one_or_none()
+    if row is None or row.revoked_at is not None:
+        return None
+    now = datetime.now(timezone.utc)
+    expires = row.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if expires < now:
+        return None
+    row.last_used_at = now
+    user = (
+        await db.execute(select(User).where(User.id == row.user_id))
+    ).scalar_one_or_none()
+    await db.commit()
+    return user
+
+
+async def revoke_refresh_token(db: AsyncSession, raw: str) -> None:
+    row = (
+        await db.execute(
+            select(RefreshToken).where(RefreshToken.token_hash == _hash_refresh(raw))
+        )
+    ).scalar_one_or_none()
+    if row is not None and row.revoked_at is None:
+        row.revoked_at = datetime.now(timezone.utc)
+        await db.commit()
 
 
 async def get_project_member(

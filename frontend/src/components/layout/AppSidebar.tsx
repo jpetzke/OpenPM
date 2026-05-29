@@ -46,7 +46,7 @@ interface AppSidebarProps {
 export function AppSidebar({ currentProjectId }: AppSidebarProps) {
   const router = useRouter();
   const pathname = usePathname();
-  const { user, clearAuth, token } = useAuthStore();
+  const { user, clearAuth, token, refreshToken } = useAuthStore();
   const { sidebarCollapsed, toggleSidebar } = useUiStore();
   const qc = useQueryClient();
 
@@ -83,9 +83,9 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
 
   const handleLogout = async () => {
     try {
-      await api.post("/api/auth/logout");
+      await api.post("/api/auth/logout", refreshToken ? { refresh_token: refreshToken } : undefined);
     } catch {
-      // ignore
+      // ignore — proceed with local logout regardless
     }
     clearAuth();
     router.push("/login");

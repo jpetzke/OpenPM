@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { UploadCloud } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { takePendingMessages, bufferPendingMessage } from "@/lib/authClient";
 import { useChatStream } from "@/hooks/useChatStream";
 import { startUploadWithFlow } from "@/lib/uploadFlow";
 import { formatTs } from "@/lib/utils";
@@ -128,7 +129,11 @@ export function CockpitLayout({ projectId }: Props) {
 
       sendMessage(
         content,
-        async (assistantText, success) => {
+        async (assistantText, success, errorCode) => {
+          // If auth expired and refresh also failed, buffer the message for replay
+          if (!success && errorCode === "auth_expired") {
+            bufferPendingMessage(projectId, currentSessionId, content);
+          }
           if (success && assistantText) {
             setOptimisticMessages((prev) => [
               ...prev,
@@ -165,8 +170,22 @@ export function CockpitLayout({ projectId }: Props) {
         selectedModel,
       );
     },
-    [projectId, selectedModel, sendMessage, qc],
+    [projectId, selectedModel, sendMessage, qc, currentSessionId],
   );
+
+  // Replay any messages that were buffered during a previous auth-expired session
+  useEffect(() => {
+    const pending = takePendingMessages(projectId);
+    if (pending.length === 0) return;
+    // Replay oldest-first with a small stagger so the stream doesn't collide
+    let delay = 0;
+    for (const msg of pending) {
+      const content = msg.content;
+      setTimeout(() => handleSend(content), delay);
+      delay += 200;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const handleAbort = useCallback(() => {
     abort();
