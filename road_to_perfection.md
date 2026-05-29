@@ -62,7 +62,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | K. Token-Budget + Kosten | 5 % | 95 / 100 | PRICING + Usage-Tuple + ChatMessage/Document JSONB + /usage Endpoint + Budget Hard/Soft + Dashboard; ARQ-Cron-Aggregator deferred (on-demand mit Redis-Cache) |
 | L. Format-Support (EML/Audio/Bilder) | 5 % | 90 / 100 | ALLOWED erweitert + EML-Parser + Image-OCR + Audio-Transcribe-Provider + source_format/parent_document_id + Format-Icons + Attachment-Gruppierung; WHISPER_PROVIDER default=off statt local (faster-whisper opt-in) |
 | M. Onboarding + Multi-Projekt-Nav | 3 % | 90 / 100 | Onboarding-Wizard + Sidebar-Collapse + Badges + Archiv + New-Project-Modal + seen-Tracking durch; Mobile-Drawer offen |
-| N. Clipboard-Paste | 2 % | 70 / 100 | Bild + Lang-Text-Routing live; Slash-Conflict offen |
+| N. Clipboard-Paste | 2 % | 85 / 100 | Page-level Paste-Handler + Multi-Image + editable-Guard live; per-Projekt-Threshold + Chat-Attachment-Karte partial |
 | O. Slash-Commands | 2 % | 0 / 100 | Nicht implementiert |
 | P. Keyboard-Navigation | 2 % | 35 / 100 | Cmd+1/2/3 (deprecated nach Refactor); Cmd+K/N fehlen |
 | Q. Session/Auth-Lifecycle | 3 % | 40 / 100 | JWT + Blocklist; Refresh + Recovery fehlen |
@@ -682,12 +682,12 @@ Im Chat-Input: Paste eines Bildes hängt es als Anhang an die Nachricht (siehe S
 
 ### ✅ Checkliste
 - [x] TextPasteModal existiert.
-- [ ] Globaler `onPaste` Handler im Cockpit (page-level), stoppt nicht Propagation in editable Elements.
-- [ ] Bild-Paste → File-Konstruktion aus `ClipboardItem.getType("image/png")` → uploadFile. Dateiname-Format `screenshot-{YYYY-MM-DD-HHmmss}.png`.
-- [ ] Text-Paste-Schwelle: 200 Zeichen — gewählt weil typischer Slack/Mail-Schnipsel-Schnitt darüber liegt; konfigurierbar via Project-Setting `paste_threshold_chars` (Default 200).
-- [ ] Conflict-Detection: Chat-Input fokussiert + Text ≤ 200 → normales Paste. Bild fokussiert oder Text > 200 → Modal.
-- [ ] Bild-Paste im Chat-Input hängt Bild als Anhang (siehe Sektion B Datei-Anhang-Flow).
-- [ ] Mehrere Bilder im Clipboard (z.B. via Browser-Auswahl) → mehrere Uploads.
+- [x] Globaler `paste`-Handler im Cockpit (`CockpitLayout.tsx` window-Listener); skippt editable Targets (`[data-chat-input]` / textarea / input / contentEditable) → ChatInput behält Fokus-Paste.
+- [x] Bild-Paste → `File` aus `ClipboardData.items` (`getAsFile`) → `startUploadWithFlow`. Dateiname `screenshot-{ts}.{ext}` via `formatTs()`.
+- [~] Text-Paste-Schwelle 200 Zeichen als `PASTE_THRESHOLD_CHARS` in `lib/ui-config.ts` (shared mit ChatInput, single source). Per-Projekt-Override `paste_threshold_chars` deferred (kein DB-Column — disproportional für den Wert).
+- [x] Conflict-Detection: ChatInput fokussiert + Text ≤ 200 → natives Paste; Bild oder Text > 200 (im Input) → Modal; Paste außerhalb editable Elements → Page-Handler (jedes nicht-leere Textstück → Modal, „kurze Notiz auch ein Dokument wert").
+- [~] Bild-Paste im Chat-Input → lädt aktuell als Dokument hoch; vollständige Inline-Anhang-Karte gehört zu Sektion B.
+- [x] Mehrere Bilder im Clipboard → mehrere Uploads (Page-Handler + ChatInput iterieren über alle image-Items).
 
 ---
 

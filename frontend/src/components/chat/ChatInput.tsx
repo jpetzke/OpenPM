@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { ModelInfo } from "@/types/chat";
 import { startUploadWithFlow } from "@/lib/uploadFlow";
 import { formatTs } from "@/lib/utils";
+import { PASTE_THRESHOLD_CHARS } from "@/lib/ui-config";
 import { TextPasteModal } from "@/components/upload/TextPasteModal";
 
 interface ChatInputProps {
@@ -23,7 +24,7 @@ interface ChatInputProps {
   projectId?: string;
 }
 
-const LONG_TEXT_THRESHOLD = 200;
+const LONG_TEXT_THRESHOLD = PASTE_THRESHOLD_CHARS;
 
 export function ChatInput({
   onSend,

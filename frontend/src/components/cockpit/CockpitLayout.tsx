@@ -6,6 +6,8 @@ import { UploadCloud } from "lucide-react";
 import { api } from "@/lib/api";
 import { useChatStream } from "@/hooks/useChatStream";
 import { startUploadWithFlow } from "@/lib/uploadFlow";
+import { formatTs } from "@/lib/utils";
+import { TextPasteModal } from "@/components/upload/TextPasteModal";
 import { LandingView } from "./LandingView";
 import { ConversationView } from "./ConversationView";
 import { StickyChatInput } from "./StickyChatInput";
@@ -45,6 +47,9 @@ export function CockpitLayout({ projectId }: Props) {
   // Page-wide drag-and-drop state.
   const dragDepthRef = useRef(0);
   const [pageDragging, setPageDragging] = useState(false);
+  // Page-level paste: a non-empty text paste outside any editable element opens
+  // the TextPasteModal pre-filled with the clipboard text.
+  const [pastePrefill, setPastePrefill] = useState<string | null>(null);
 
   const { data: models, error: modelsError } = useQuery<ModelInfo[]>({
     queryKey: ["settings", "models"],
@@ -228,6 +233,57 @@ export function CockpitLayout({ projectId }: Props) {
     };
   }, [projectId, qc]);
 
+  // -------------------------------------------------------------------------
+  // Page-level clipboard paste (roadmap N). Fires only when the paste target is
+  // NOT an editable element — ChatInput owns paste while its textarea is
+  // focused (image→attachment-upload, long-text→modal, short-text→native). A
+  // paste anywhere else on the cockpit: images upload as screenshots (multiple
+  // images → multiple uploads); any non-empty text opens the TextPasteModal
+  // (even short notes are worth keeping as a document).
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    const isEditable = (t: EventTarget | null): boolean => {
+      const el = t as HTMLElement | null;
+      if (!el || !el.tagName) return false;
+      if (el.closest?.("[data-chat-input]")) return true;
+      if (el.tagName === "TEXTAREA" || el.tagName === "INPUT") return true;
+      return !!el.isContentEditable;
+    };
+
+    const onPaste = (e: ClipboardEvent) => {
+      if (isEditable(e.target)) return; // ChatInput / native handles it
+      const dt = e.clipboardData;
+      if (!dt) return;
+
+      const images: File[] = [];
+      for (const it of Array.from(dt.items)) {
+        if (it.kind === "file" && it.type.startsWith("image/")) {
+          const blob = it.getAsFile();
+          if (blob) {
+            const ext = (it.type.split("/")[1] || "png").split(";")[0];
+            images.push(
+              new File([blob], `screenshot-${formatTs()}.${ext}`, { type: it.type }),
+            );
+          }
+        }
+      }
+      if (images.length > 0) {
+        e.preventDefault();
+        images.forEach((f) => startUploadWithFlow(f, { projectId, qc }));
+        return;
+      }
+
+      const text = dt.getData("text") ?? "";
+      if (text.trim().length > 0) {
+        e.preventDefault();
+        setPastePrefill(text);
+      }
+    };
+
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  }, [projectId, qc]);
+
   const streamApi = useMemo(
     () => ({
       streaming,
@@ -349,6 +405,13 @@ export function CockpitLayout({ projectId }: Props) {
             </p>
           </div>
         </div>
+      )}
+      {pastePrefill !== null && (
+        <TextPasteModal
+          projectId={projectId}
+          initialContent={pastePrefill}
+          onClose={() => setPastePrefill(null)}
+        />
       )}
     </div>
   );
