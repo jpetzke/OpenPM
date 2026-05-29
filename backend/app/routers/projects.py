@@ -5,6 +5,7 @@ from pathlib import Path
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -484,3 +485,37 @@ async def embeddings_recreate(
         ) from exc
     log.info("embeddings_recreated", project_id=str(project_id), dim=result.get("collection_dim"))
     return result
+
+
+class SearchRequest(BaseModel):
+    query: str
+    limit: int = 5
+
+
+@router.post("/{project_id}/search")
+async def search_project(
+    project_id: uuid.UUID,
+    payload: SearchRequest,
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Direct semantic search over the project's Qdrant collection — no LLM
+    wrapper. Backs the `/search` slash-command (zero LLM tokens; embedding the
+    query is the only model call). Returns [] when embeddings are disabled or
+    the collection is empty."""
+    query = payload.query.strip()
+    if not query:
+        return {"query": query, "results": []}
+    limit = max(1, min(payload.limit, 20))
+    results = await qdrant_service.search(str(project_id), query, limit)
+    return {
+        "query": query,
+        "results": [
+            {
+                "chunk_text": r.chunk_text,
+                "document_id": str(r.document_id),
+                "source_filename": r.source_filename,
+                "score": r.score,
+            }
+            for r in results
+        ],
+    }

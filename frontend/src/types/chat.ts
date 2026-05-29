@@ -18,6 +18,8 @@ export interface ChatMessage {
   model: string | null;
   token_usage?: TokenUsage | null;
   created_at: string;
+  /** When true, this message was produced by a local slash-command (no LLM round-trip). */
+  is_local_command?: boolean;
 }
 
 export interface ChatStreamError {

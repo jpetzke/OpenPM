@@ -74,6 +74,14 @@ export function ChatMessageComponent({ message, isStreaming }: ChatMessageProps)
             {!isStreaming && message.token_usage && (
               <TokenSubline usage={message.token_usage} />
             )}
+            {!isStreaming && message.is_local_command && !message.token_usage && (
+              <div
+                className="mt-1.5 text-[11px] font-mono"
+                style={{ color: "var(--text-muted)" }}
+              >
+                lokal · 0 Token
+              </div>
+            )}
           </div>
         )}
       </div>

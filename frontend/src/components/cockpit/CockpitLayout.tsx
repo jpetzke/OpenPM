@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { UploadCloud } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { useChatStream } from "@/hooks/useChatStream";
 import { startUploadWithFlow } from "@/lib/uploadFlow";
@@ -14,7 +15,11 @@ import { StickyChatInput } from "./StickyChatInput";
 import { StatusPanel } from "./StatusPanel";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { BriefingPanel } from "./BriefingPanel";
-import type { ChatMessage, ModelInfo } from "@/types/chat";
+import type { ChatMessage, ModelInfo, ChatSession } from "@/types/chat";
+import type { ProjectState, StateChangelog, Task, Deadline, Blocker, Contact } from "@/types/state";
+import type { Project } from "@/types/project";
+import type { Document } from "@/types/document";
+import type { SlashCommandName } from "@/lib/slash-commands";
 
 interface Props {
   projectId: string;
@@ -178,6 +183,334 @@ export function CockpitLayout({ projectId }: Props) {
   );
 
   // -------------------------------------------------------------------------
+  // Slash-command executor — all commands run locally, zero LLM round-trips.
+  // Local messages are pushed into optimisticMessages; they are ephemeral
+  // (cleared on the next real send / reload), which is acceptable per spec.
+  // -------------------------------------------------------------------------
+  const pushLocalMessages = useCallback(
+    (userContent: string, assistantContent: string) => {
+      const now = new Date().toISOString();
+      const userMsg: ChatMessage = {
+        id: `local-user-${crypto.randomUUID()}`,
+        project_id: projectId,
+        user_id: null,
+        role: "user",
+        content: userContent,
+        tool_calls: null,
+        tool_results: null,
+        state_version: null,
+        model: null,
+        created_at: now,
+      };
+      const assistantMsg: ChatMessage = {
+        id: `local-assistant-${crypto.randomUUID()}`,
+        project_id: projectId,
+        user_id: null,
+        role: "assistant",
+        content: assistantContent,
+        tool_calls: null,
+        tool_results: null,
+        state_version: null,
+        model: null,
+        is_local_command: true,
+        created_at: now,
+      };
+      setOptimisticMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setViewMode("conversation");
+    },
+    [projectId],
+  );
+
+  const handleSlashCommand = useCallback(
+    async (name: string, arg: string) => {
+      const rawInput = arg ? `/${name} ${arg}` : `/${name}`;
+
+      switch (name as SlashCommandName) {
+        // ── /status ──────────────────────────────────────────────────────────
+        case "status": {
+          let stateData = qc.getQueryData<ProjectState>(["projects", projectId, "state"]);
+          if (!stateData) {
+            stateData = await api.get<ProjectState>(`/api/projects/${projectId}/state`);
+          }
+          const core = stateData?.state?.core ?? {};
+          const lines = [
+            "## Projektstatus",
+            "",
+            `| Bereich | Anzahl |`,
+            `|---|---|`,
+            `| Offene Aufgaben | ${core.open_tasks?.length ?? 0} |`,
+            `| Fristen | ${core.deadlines?.length ?? 0} |`,
+            `| Blocker | ${core.blockers?.length ?? 0} |`,
+            `| Kontakte | ${core.contacts?.length ?? 0} |`,
+            `| Entscheidungen | ${core.decisions?.length ?? 0} |`,
+            `| State-Version | ${stateData?.version ?? "–"} |`,
+          ];
+          pushLocalMessages(rawInput, lines.join("\n"));
+          break;
+        }
+
+        // ── /tasks ───────────────────────────────────────────────────────────
+        case "tasks": {
+          let stateData = qc.getQueryData<ProjectState>(["projects", projectId, "state"]);
+          if (!stateData) {
+            stateData = await api.get<ProjectState>(`/api/projects/${projectId}/state`);
+          }
+          const tasks: Task[] = (stateData?.state?.core?.open_tasks ?? [])
+            .filter((t) => t.status !== "done")
+            .sort((a, b) => {
+              if (!a.deadline && !b.deadline) return 0;
+              if (!a.deadline) return 1;
+              if (!b.deadline) return -1;
+              return a.deadline.localeCompare(b.deadline);
+            });
+          if (tasks.length === 0) {
+            pushLocalMessages(rawInput, "_Keine offenen Aufgaben._");
+          } else {
+            const lines = [
+              "## Offene Aufgaben",
+              "",
+              ...tasks.map((t) => {
+                const due = t.deadline ? ` · Fällig: ${t.deadline}` : "";
+                const who = t.assignee ? ` · ${t.assignee}` : "";
+                const blocked = t.status === "blocked" ? " 🔴" : "";
+                return `- **${t.title}**${blocked}${due}${who}`;
+              }),
+            ];
+            pushLocalMessages(rawInput, lines.join("\n"));
+          }
+          break;
+        }
+
+        // ── /deadlines ────────────────────────────────────────────────────────
+        case "deadlines": {
+          let stateData = qc.getQueryData<ProjectState>(["projects", projectId, "state"]);
+          if (!stateData) {
+            stateData = await api.get<ProjectState>(`/api/projects/${projectId}/state`);
+          }
+          const today = new Date().toISOString().slice(0, 10);
+          const all: Deadline[] = stateData?.state?.core?.deadlines ?? [];
+          const upcoming = all
+            .filter((d) => !d.date || d.date >= today)
+            .sort((a, b) => (a.date ?? "").localeCompare(b.date ?? ""));
+          const overdue = all
+            .filter((d) => d.date && d.date < today)
+            .sort((a, b) => b.date!.localeCompare(a.date!));
+          if (all.length === 0) {
+            pushLocalMessages(rawInput, "_Keine Fristen eingetragen._");
+          } else {
+            const lines = ["## Fristen", ""];
+            if (upcoming.length > 0) {
+              lines.push("**Bevorstehend**", "");
+              upcoming.forEach((d) => {
+                lines.push(`- **${d.title}**${d.date ? ` — ${d.date}` : ""}`);
+              });
+            }
+            if (overdue.length > 0) {
+              lines.push("", "**Überfällig**", "");
+              overdue.forEach((d) => {
+                lines.push(`- ~~${d.title}~~ — ${d.date}`);
+              });
+            }
+            pushLocalMessages(rawInput, lines.join("\n"));
+          }
+          break;
+        }
+
+        // ── /blockers ─────────────────────────────────────────────────────────
+        case "blockers": {
+          let stateData = qc.getQueryData<ProjectState>(["projects", projectId, "state"]);
+          if (!stateData) {
+            stateData = await api.get<ProjectState>(`/api/projects/${projectId}/state`);
+          }
+          const blockers: Blocker[] = stateData?.state?.core?.blockers ?? [];
+          if (blockers.length === 0) {
+            pushLocalMessages(rawInput, "_Keine Blocker._");
+          } else {
+            const lines = [
+              "## Blocker",
+              "",
+              ...blockers.map((b) => `- **${b.title}**${b.description ? `\n  ${b.description}` : ""}`),
+            ];
+            pushLocalMessages(rawInput, lines.join("\n"));
+          }
+          break;
+        }
+
+        // ── /contacts ─────────────────────────────────────────────────────────
+        case "contacts": {
+          let stateData = qc.getQueryData<ProjectState>(["projects", projectId, "state"]);
+          if (!stateData) {
+            stateData = await api.get<ProjectState>(`/api/projects/${projectId}/state`);
+          }
+          const contacts: Contact[] = stateData?.state?.core?.contacts ?? [];
+          if (contacts.length === 0) {
+            pushLocalMessages(rawInput, "_Keine Kontakte._");
+          } else {
+            const lines = [
+              "## Kontakte",
+              "",
+              ...contacts.map((c) => {
+                const email = c.email ? ` · ${c.email}` : "";
+                const role = c.role ? ` · ${c.role}` : "";
+                return `- **${c.name}**${role}${email}`;
+              }),
+            ];
+            pushLocalMessages(rawInput, lines.join("\n"));
+          }
+          break;
+        }
+
+        // ── /search <query> ───────────────────────────────────────────────────
+        case "search": {
+          if (!arg.trim()) {
+            pushLocalMessages(rawInput, "_Bitte einen Suchbegriff angeben: `/search <Begriff>`_");
+            break;
+          }
+          try {
+            const result = await api.post<{
+              query: string;
+              results: { chunk_text: string; document_id: string; source_filename: string; score: number }[];
+            }>(`/api/projects/${projectId}/search`, { query: arg, limit: 5 });
+            if (result.results.length === 0) {
+              pushLocalMessages(rawInput, `_Keine Treffer für „${arg}"._`);
+            } else {
+              const lines = [`## Suche: „${arg}"`, ""];
+              result.results.forEach((r, i) => {
+                const score = (r.score * 100).toFixed(0);
+                const snippet = r.chunk_text.slice(0, 200).replace(/\n/g, " ");
+                lines.push(
+                  `**${i + 1}. ${r.source_filename}** (Score: ${score}%)`,
+                  `> ${snippet}${r.chunk_text.length > 200 ? "…" : ""}`,
+                  "",
+                );
+              });
+              pushLocalMessages(rawInput, lines.join("\n"));
+            }
+          } catch {
+            pushLocalMessages(rawInput, "_Suche fehlgeschlagen. Bitte erneut versuchen._");
+          }
+          break;
+        }
+
+        // ── /export ───────────────────────────────────────────────────────────
+        case "export": {
+          try {
+            const proj = await api.get<Project>(`/api/projects/${projectId}`);
+            if (!proj.compiled_briefing) {
+              toast.info("Kein Briefing vorhanden");
+            } else {
+              const date = new Date().toISOString().slice(0, 10);
+              const blob = new Blob([proj.compiled_briefing], { type: "text/markdown" });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `briefing-${date}.md`;
+              a.click();
+              URL.revokeObjectURL(url);
+              pushLocalMessages(rawInput, `_Briefing als \`briefing-${date}.md\` heruntergeladen._`);
+            }
+          } catch {
+            toast.error("Export fehlgeschlagen");
+          }
+          break;
+        }
+
+        // ── /cancel ───────────────────────────────────────────────────────────
+        case "cancel": {
+          try {
+            const docs = qc.getQueryData<Document[]>(["projects", projectId, "documents"])
+              ?? await api.get<Document[]>(`/api/projects/${projectId}/documents`);
+            const active = docs.filter(
+              (d) => d.processing_status === "pending" || d.processing_status === "processing",
+            );
+            if (active.length === 0) {
+              pushLocalMessages(rawInput, "_Keine laufenden Pipelines gefunden._");
+              break;
+            }
+            await Promise.allSettled(
+              active.map((d) =>
+                api.delete(`/api/projects/${projectId}/documents/${d.id}?cancel_pipeline=true`),
+              ),
+            );
+            toast.success(`${active.length} Pipeline${active.length > 1 ? "s" : ""} abgebrochen`);
+            pushLocalMessages(rawInput, `_${active.length} Pipeline${active.length > 1 ? "s" : ""} abgebrochen._`);
+          } catch {
+            toast.error("Abbruch fehlgeschlagen");
+          }
+          break;
+        }
+
+        // ── /clear ────────────────────────────────────────────────────────────
+        case "clear": {
+          try {
+            await api.post<ChatSession>(`/api/projects/${projectId}/chat/sessions`, {});
+          } catch {
+            // ignore — startNewSession creates a fresh client slot even without a server session
+          }
+          handleBackToLanding();
+          break;
+        }
+
+        // ── /version ──────────────────────────────────────────────────────────
+        case "version": {
+          try {
+            const [stateResp, historyResp] = await Promise.all([
+              api.get<ProjectState>(`/api/projects/${projectId}/state`),
+              api.get<StateChangelog[]>(`/api/projects/${projectId}/state/history`),
+            ]);
+            const latest = historyResp?.[0];
+            const lines = [
+              "## State-Version",
+              "",
+              `**Aktuelle Version:** ${stateResp?.version ?? "–"}`,
+              "",
+            ];
+            if (latest) {
+              lines.push(
+                "**Letzter Changelog:**",
+                `- Version ${latest.from_version ?? "–"} → ${latest.to_version}`,
+                `- Auslöser: \`${latest.triggered_by}\``,
+                `- ${new Date(latest.created_at).toLocaleString("de-DE")}`,
+              );
+            }
+            pushLocalMessages(rawInput, lines.join("\n"));
+          } catch {
+            pushLocalMessages(rawInput, "_Versionsdaten nicht verfügbar._");
+          }
+          break;
+        }
+
+        // ── /help ─────────────────────────────────────────────────────────────
+        case "help": {
+          const lines = [
+            "## Slash-Befehle",
+            "",
+            "| Befehl | Beschreibung |",
+            "|---|---|",
+            "| `/status` | Projekt-Zusammenfassung |",
+            "| `/tasks` | Offene Aufgaben nach Fälligkeitsdatum |",
+            "| `/deadlines` | Bevorstehende & überfällige Fristen |",
+            "| `/blockers` | Offene Blocker |",
+            "| `/contacts` | Kontaktliste |",
+            "| `/search <Begriff>` | Semantische Dokumentensuche |",
+            "| `/export` | Briefing als .md herunterladen |",
+            "| `/cancel` | Laufende Pipelines abbrechen |",
+            "| `/clear` | Neuen Chat starten |",
+            "| `/version` | State-Version & letzter Changelog |",
+            "| `/help` | Diese Übersicht |",
+          ];
+          pushLocalMessages(rawInput, lines.join("\n"));
+          break;
+        }
+
+        default:
+          pushLocalMessages(rawInput, `_Unbekannter Befehl: \`/${name}\`. Tippe \`/help\` für eine Übersicht._`);
+      }
+    },
+    [projectId, qc, pushLocalMessages, handleBackToLanding],
+  );
+
+  // -------------------------------------------------------------------------
   // Page-wide drag-and-drop overlay. Uses the enter-counter pattern from
   // DropZone — dragenter/leave fire on every child node, so a boolean alone
   // flickers. We only update visible state when transitioning 0 ↔ 1+.
@@ -334,6 +667,7 @@ export function CockpitLayout({ projectId }: Props) {
               models={models}
               selectedModel={selectedModel}
               onModelChange={setSelectedModel}
+              onSlashCommand={handleSlashCommand}
             />
           ) : (
             <ConversationView
@@ -361,6 +695,7 @@ export function CockpitLayout({ projectId }: Props) {
               selectedModel={selectedModel}
               onModelChange={setSelectedModel}
               projectId={projectId}
+              onSlashCommand={handleSlashCommand}
             />
           </div>
         )}

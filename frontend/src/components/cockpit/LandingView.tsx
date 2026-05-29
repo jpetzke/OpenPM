@@ -21,6 +21,7 @@ interface Props {
   models?: ModelInfo[];
   selectedModel?: string;
   onModelChange?: (model: string) => void;
+  onSlashCommand?: (name: string, arg: string) => void;
 }
 
 const SUGGESTED_PROMPTS = [
@@ -40,6 +41,7 @@ export function LandingView({
   models,
   selectedModel,
   onModelChange,
+  onSlashCommand,
 }: Props) {
   const { data: project } = useQuery<Project>({
     queryKey: ["projects", projectId],
@@ -109,6 +111,7 @@ export function LandingView({
           selectedModel={selectedModel}
           onModelChange={onModelChange}
           projectId={projectId}
+          onSlashCommand={onSlashCommand}
         />
       </section>
 

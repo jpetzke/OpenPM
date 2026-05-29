@@ -7,6 +7,12 @@ import { startUploadWithFlow } from "@/lib/uploadFlow";
 import { formatTs } from "@/lib/utils";
 import { PASTE_THRESHOLD_CHARS } from "@/lib/ui-config";
 import { TextPasteModal } from "@/components/upload/TextPasteModal";
+import { SlashCommandPopover } from "./SlashCommandPopover";
+import {
+  matchSlashCommands,
+  parseSlashCommand,
+  type SlashCommandDef,
+} from "@/lib/slash-commands";
 
 interface ChatInputProps {
   onFocus?: () => void;
@@ -22,6 +28,11 @@ interface ChatInputProps {
    * the project's documents endpoint. Without it, the icon is hidden.
    */
   projectId?: string;
+  /**
+   * Called instead of onSend when the user submits a slash command.
+   * `arg` is the text after the command name (empty string if none).
+   */
+  onSlashCommand?: (name: string, arg: string) => void;
 }
 
 const LONG_TEXT_THRESHOLD = PASTE_THRESHOLD_CHARS;
@@ -36,6 +47,7 @@ export function ChatInput({
   onModelChange,
   onFocus,
   projectId,
+  onSlashCommand,
 }: ChatInputProps) {
   const qc = useQueryClient();
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -43,19 +55,66 @@ export function ChatInput({
   const [isMobile, setIsMobile] = useState(false);
   const [pasteModal, setPasteModal] = useState<{ initial: string } | null>(null);
 
+  // Slash-command popover state
+  const [slashMatches, setSlashMatches] = useState<SlashCommandDef[]>([]);
+  const [slashActiveIdx, setSlashActiveIdx] = useState(0);
+
+  const slashOpen = slashMatches.length > 0;
+
   useEffect(() => {
     setIsMobile("ontouchstart" in window);
+  }, []);
+
+  const clearInput = useCallback(() => {
+    if (ref.current) {
+      ref.current.value = "";
+      ref.current.style.height = "auto";
+    }
+    setSlashMatches([]);
+    setSlashActiveIdx(0);
   }, []);
 
   const submit = useCallback(() => {
     const val = ref.current?.value.trim();
     if (!val || disabled) return;
-    onSend(val);
-    if (ref.current) {
-      ref.current.value = "";
-      ref.current.style.height = "auto";
+
+    // Try to parse as a slash command first.
+    const parsed = parseSlashCommand(val);
+    if (parsed && onSlashCommand) {
+      onSlashCommand(parsed.name, parsed.arg);
+      clearInput();
+      return;
     }
-  }, [onSend, disabled]);
+
+    onSend(val);
+    clearInput();
+  }, [onSend, onSlashCommand, disabled, clearInput]);
+
+  /** Insert `/name ` into textarea and close popover (for no-arg commands). */
+  const selectSlashCommand = useCallback((name: string) => {
+    const def = slashMatches.find((c) => c.name === name) ?? slashMatches[0];
+    if (!def) return;
+
+    if (ref.current) {
+      if (def.takesArg) {
+        ref.current.value = `/${name} `;
+      } else {
+        // No arg: execute immediately
+        if (onSlashCommand) {
+          onSlashCommand(name, "");
+          clearInput();
+          return;
+        }
+        ref.current.value = `/${name} `;
+      }
+      // Trigger height auto-resize
+      ref.current.style.height = "auto";
+      ref.current.style.height = Math.min(ref.current.scrollHeight, 120) + "px";
+      ref.current.focus();
+    }
+    setSlashMatches([]);
+    setSlashActiveIdx(0);
+  }, [slashMatches, onSlashCommand, clearInput]);
 
   const handleUploadFile = useCallback(
     (file: File) => {
@@ -117,6 +176,31 @@ export function ChatInput({
   );
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Slash popover takes priority for navigation keys.
+    if (slashOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashActiveIdx((i) => (i + 1) % slashMatches.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashActiveIdx((i) => (i - 1 + slashMatches.length) % slashMatches.length);
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        selectSlashCommand(slashMatches[slashActiveIdx]?.name ?? slashMatches[0].name);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashMatches([]);
+        setSlashActiveIdx(0);
+        return;
+      }
+    }
+
     if (isMobile) {
       // On mobile: Enter inserts newline. Cmd/Ctrl+Enter still submits.
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -140,6 +224,21 @@ export function ChatInput({
     const el = e.target;
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
+
+    // Compute slash-command matches whenever value changes.
+    const val = el.value;
+    if (val.startsWith("/") && !val.includes(" ")) {
+      // Still typing the command name
+      const matches = matchSlashCommands(val);
+      setSlashMatches(matches);
+      setSlashActiveIdx(0);
+    } else if (val === "") {
+      setSlashMatches([]);
+      setSlashActiveIdx(0);
+    } else {
+      // Once a space is typed (argument mode) or value doesn't start with /
+      setSlashMatches([]);
+    }
   };
 
   const isActive = sending;
@@ -177,7 +276,7 @@ export function ChatInput({
       )}
 
       {/* Input row */}
-      <div className="flex items-end gap-2">
+      <div className="flex items-end gap-2 relative">
         {projectId && (
           <>
             <button
@@ -202,23 +301,33 @@ export function ChatInput({
             />
           </>
         )}
-        <textarea
-          ref={ref}
-          rows={1}
-          onKeyDown={onKeyDown}
-          onChange={onInput}
-          onFocus={onFocus}
-          onPaste={onPaste}
-          disabled={false}
-          placeholder="Frage stellen..."
-          className="flex-1 resize-none outline-none text-sm py-2 px-3 rounded-md"
-          style={{
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--border)",
-            color: "var(--text-primary)",
-            maxHeight: "120px",
-          }}
-        />
+        <div className="flex-1 relative">
+          {slashOpen && (
+            <SlashCommandPopover
+              items={slashMatches}
+              activeIndex={slashActiveIdx}
+              onSelect={selectSlashCommand}
+              onHover={setSlashActiveIdx}
+            />
+          )}
+          <textarea
+            ref={ref}
+            rows={1}
+            onKeyDown={onKeyDown}
+            onChange={onInput}
+            onFocus={onFocus}
+            onPaste={onPaste}
+            disabled={false}
+            placeholder="Frage stellen..."
+            className="w-full resize-none outline-none text-sm py-2 px-3 rounded-md"
+            style={{
+              background: "var(--bg-elevated)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              maxHeight: "120px",
+            }}
+          />
+        </div>
 
         {isActive ? (
           <button

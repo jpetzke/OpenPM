@@ -13,6 +13,7 @@ interface Props {
   onModelChange?: (model: string) => void;
   onFocus?: () => void;
   projectId?: string;
+  onSlashCommand?: (name: string, arg: string) => void;
 }
 
 export function StickyChatInput(props: Props) {

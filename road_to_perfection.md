@@ -63,7 +63,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | L. Format-Support (EML/Audio/Bilder) | 5 % | 90 / 100 | ALLOWED erweitert + EML-Parser + Image-OCR + Audio-Transcribe-Provider + source_format/parent_document_id + Format-Icons + Attachment-Gruppierung; WHISPER_PROVIDER default=off statt local (faster-whisper opt-in) |
 | M. Onboarding + Multi-Projekt-Nav | 3 % | 90 / 100 | Onboarding-Wizard + Sidebar-Collapse + Badges + Archiv + New-Project-Modal + seen-Tracking durch; Mobile-Drawer offen |
 | N. Clipboard-Paste | 2 % | 85 / 100 | Page-level Paste-Handler + Multi-Image + editable-Guard live; per-Projekt-Threshold + Chat-Attachment-Karte partial |
-| O. Slash-Commands | 2 % | 0 / 100 | Nicht implementiert |
+| O. Slash-Commands | 2 % | 100 / 100 | Registry + Popover + 11 Commands + /search-Endpoint + lokale Zero-Token-Messages live |
 | P. Keyboard-Navigation | 2 % | 35 / 100 | Cmd+1/2/3 (deprecated nach Refactor); Cmd+K/N fehlen |
 | Q. Session/Auth-Lifecycle | 3 % | 40 / 100 | JWT + Blocklist; Refresh + Recovery fehlen |
 | R. Notifications & Recovery | 2 % | 25 / 100 | Toast da; Browser-Push fehlt |
@@ -711,19 +711,20 @@ Im Chat-Input erkennen wir `/` am Zeilenanfang → Autocomplete-Dropdown filterb
 | `/help` | Listet alle Commands | nein |
 
 ### 📍 Ist
-- **Nicht implementiert.**
+- Implementiert (2026-05-29). Registry + Popover + 11 Commands + Backend-Search-Endpoint.
 
 ### ✅ Checkliste
-- [ ] Slash-Command-Registry als Frontend-Module `frontend/src/lib/slash-commands.ts` mit Handler-Funktionen.
-- [ ] Autocomplete-Popover über Chat-Input (Trigger: `/` als erstes Zeichen, schließt bei Space + Argument-Start).
-- [ ] Tab / Enter wählt Command aus, scrollt mit Pfeiltasten.
-- [ ] Argument-Parsing (`/search foo bar` → query="foo bar").
-- [ ] Render-Logik pro Command: erzeugt eine assistant-style Message inline ohne API-Call. Markierung als `local_command` damit klar ist dass es kein LLM-Output war.
-- [ ] `/search` macht direkten `POST /api/projects/{id}/search` (Embedding der Query + Qdrant-Lookup, kein Chat-Endpoint).
-- [ ] `/cancel` ruft pro laufender Pipeline `DELETE /api/projects/{id}/documents/{doc_id}?cancel_pipeline=true`.
-- [ ] `/clear` ruft `POST /api/projects/{id}/chat/sessions` (neue Session) und switched UI.
-- [ ] `/help` zeigt formatierte Tabelle aller Commands.
-- [ ] Slash-Command-Messages erscheinen mit dezenter Markierung „lokal" + zero token-cost subzeile.
+- [x] Slash-Command-Registry `frontend/src/lib/slash-commands.ts` (`SLASH_COMMANDS`, `matchSlashCommands`, `parseSlashCommand`).
+- [x] Autocomplete-Popover `SlashCommandPopover.tsx` über Chat-Input (Trigger `/` als erstes Zeichen, schließt bei Space/Argument-Start).
+- [x] Tab/Enter wählt Command, ArrowUp/Down scrollt (in `ChatInput.onKeyDown`, popover hat Vorrang).
+- [x] Argument-Parsing (`parseSlashCommand` → `{name, arg}`; `/search foo bar` → arg="foo bar").
+- [x] Render pro Command: lokale assistant-style Message via `pushLocalMessages` (user + assistant Paar in optimisticMessages), `is_local_command: true`.
+- [x] `/search` → direkter `POST /api/projects/{id}/search` (Qdrant, kein LLM-Wrapper; Backend `routers/projects.py::search_project`). Zero LLM-Token.
+- [x] `/cancel` ruft pro laufender Pipeline `DELETE …/documents/{doc_id}?cancel_pipeline=true`.
+- [x] `/clear` ruft `POST …/chat/sessions` + switched aktive Session (reuse `startNewSession`).
+- [x] `/help` zeigt formatierte Command-Tabelle inline.
+- [x] Slash-Messages mit `is_local_command`-Marker → ChatMessage rendert „lokal · 0 Token" Subzeile.
+- Commands: `/status /tasks /deadlines /blockers /contacts /search /export /cancel /clear /version /help`. `/export` lädt `compiled_briefing` client-seitig als `briefing-{date}.md` (volle ZIP/Chat-Export = Sektion U).
 
 ---
 
