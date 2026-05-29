@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Plus, FileText, Activity, CheckSquare, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { providersApi } from "@/lib/providers";
 import { useAuthStore } from "@/store/authStore";
 import { formatRelativeTime } from "@/lib/utils";
 import { AppSidebar } from "@/components/layout/AppSidebar";
@@ -54,6 +55,17 @@ export default function ProjectsPage() {
   useEffect(() => {
     if (hasHydrated && !token) router.push("/login");
   }, [token, hasHydrated, router]);
+
+  // Redirect to onboarding if no active LLM provider
+  useEffect(() => {
+    if (!token) return;
+    providersApi.summary().then((s) => {
+      if (!s.llm_active) router.replace("/onboarding");
+    }).catch(() => {
+      // ignore — don't block the page on error
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
 
   if (!hasHydrated || !token) return null;
 

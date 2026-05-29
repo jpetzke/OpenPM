@@ -61,7 +61,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | J. Briefing + Context-Window | 5 % | 100 / 100 | tiktoken SOFT 1000 / HARD 1500 + Slot-Priorisierung + Cache-Skip (briefing_state_version) + UI-Pille |
 | K. Token-Budget + Kosten | 5 % | 95 / 100 | PRICING + Usage-Tuple + ChatMessage/Document JSONB + /usage Endpoint + Budget Hard/Soft + Dashboard; ARQ-Cron-Aggregator deferred (on-demand mit Redis-Cache) |
 | L. Format-Support (EML/Audio/Bilder) | 5 % | 90 / 100 | ALLOWED erweitert + EML-Parser + Image-OCR + Audio-Transcribe-Provider + source_format/parent_document_id + Format-Icons + Attachment-Gruppierung; WHISPER_PROVIDER default=off statt local (faster-whisper opt-in) |
-| M. Onboarding + Multi-Projekt-Nav | 3 % | 35 / 100 | Sidebar da; Wizard fehlt |
+| M. Onboarding + Multi-Projekt-Nav | 3 % | 90 / 100 | Onboarding-Wizard + Sidebar-Collapse + Badges + Archiv + New-Project-Modal + seen-Tracking durch; Mobile-Drawer offen |
 | N. Clipboard-Paste | 2 % | 70 / 100 | Bild + Lang-Text-Routing live; Slash-Conflict offen |
 | O. Slash-Commands | 2 % | 0 / 100 | Nicht implementiert |
 | P. Keyboard-Navigation | 2 % | 35 / 100 | Cmd+1/2/3 (deprecated nach Refactor); Cmd+K/N fehlen |
@@ -649,17 +649,18 @@ Pro Chat-Message: Token-Verbrauch (Input + Output) + USD-Schätzung sichtbar als
 - [x] Demo-User auto-Seed.
 - [x] AppSidebar mit Projekt-Liste.
 - [x] Settings-Page für Provider.
-- [ ] First-Login-Check: API liefert `503 no_active_llm_provider` → Frontend redirected auf `/onboarding` statt Error-Banner.
-- [ ] Onboarding-Page 3-Step-Wizard (Provider → Test → Projekt+Upload).
-- [ ] „Verbindung testen"-Button macht 1-Token-Call (`prompt: "ok"`, `max_tokens: 1`) und reportet Latenz + Cost ($0.000…).
-- [ ] Sidebar collapsible mit `ChevronLeft` Toggle, Zustand in localStorage (`sidebar_collapsed`).
-- [ ] Sidebar-Badge pro Projekt: kombiniert (a) Anzahl aktiver Pipelines (Pulsing-Dot), (b) Anzahl failed Docs (rot), (c) Anzahl ungelesener State-Änderungen seit `user_project_views.last_seen_at`.
-- [ ] DB: `user_project_views` (user_id, project_id, last_seen_at) — wird beim Cockpit-Mount aktualisiert.
-- [ ] DB: `projects.archived_at` Timestamp nullable.
-- [ ] Sidebar-Sub-Sektion „Archiv" (collapsed default) zeigt archivierte Projekte.
-- [ ] Projekt-Header-Menü: „Archivieren" + „Aus Archiv holen".
-- [ ] „+ Neues Projekt"-Button oben in Sidebar, öffnet Modal mit Name + optional Beschreibung.
-- [ ] Mobile: Sidebar als Drawer (Hamburger oben links).
+- [x] First-Login-Check: `providersApi.summary()` (`GET /api/settings`) liefert `llm_active=false` → `projects/page.tsx` `router.replace("/onboarding")` statt Error-Banner.
+- [x] Onboarding-Page 3-Step-Wizard (`app/onboarding/page.tsx`: Provider-Form → Test → Projekt-Anlage) mit Stepper + Weiter/Zurück.
+- [x] „Verbindung testen"-Button ruft `providersApi.test(id)` (Backend macht 1-Token `ping`-Call), reportet client-seitig gemessene Latenz + `≈ $0.00`.
+- [x] Sidebar collapsible mit `ChevronLeft/Right` Toggle, Zustand in `store/uiStore.ts` persistiert auf localStorage (`sidebar_collapsed`) — hooks-ready für Cmd+B (Sektion P).
+- [x] Sidebar-Badge pro Projekt: (a) aktive Pipelines (Pulsing/Spinner), (b) `failed_document_count` rot, (c) `unread_change_count` (changelog seit `user_project_views.last_seen_at`) indigo — unread nur wenn nicht aktuell offen.
+- [x] DB: `user_project_views` (id, user_id, project_id, last_seen_at, UNIQUE(user,project)) — Alembic `0016`; `POST /api/projects/{id}/seen` upsert beim Cockpit-Mount (`layout.tsx` useEffect).
+- [x] DB: `projects.archived_at` Timestamp nullable + partial index `ix_projects_active`. (Alembic `0016`.)
+- [x] Sidebar-Sub-Sektion „Archiv" (collapsed default) fetcht `?include_archived=true`, zeigt archivierte Projekte mit „Aus Archiv holen".
+- [x] Projekt-Menü (Sidebar-Row-Kebab `MoreVertical`, hover): „Archivieren" → `POST .../archive` (owner-only, 403 graceful); Archiv-Sektion: „Aus Archiv holen" → `POST .../unarchive`.
+- [x] „+ Neues Projekt"-Button oben in Sidebar öffnet `NewProjectModal` (Name + optional client_name) → `POST /api/projects` → redirect zum neuen Projekt.
+- [ ] Mobile: Sidebar als Drawer (Hamburger oben links) — offen (Folge-Polish; Desktop-Sidebar + Collapse durch).
+- [x] `GET /api/projects` filtert `archived_at IS NULL` default, `?include_archived=true` Opt-in.
 
 ---
 

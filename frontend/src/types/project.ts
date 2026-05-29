@@ -15,11 +15,14 @@ export interface Project {
   briefing_state_version: number | null;
   briefing_priority_order: string[] | null;
   monthly_budget_usd: number | null;
+  archived_at?: string | null;
   created_at: string;
   updated_at: string;
   created_by: string;
   document_count?: number;
   open_task_count?: number | null;
+  failed_document_count?: number;
+  unread_change_count?: number;
   members?: ProjectMember[];
 }
 

@@ -1,7 +1,7 @@
 "use client";
-import { use, useEffect } from "react";
+import { use, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { useProjectSSE } from "@/hooks/useProjectSSE";
@@ -21,12 +21,26 @@ export default function ProjectLayout({
   const router = useRouter();
   const token = useAuthStore((s) => s.token);
   const hasHydrated = useAuthStore((s) => s.hasHydrated);
+  const qc = useQueryClient();
+  const seenCalledRef = useRef(false);
 
   useProjectSSE(id);
 
   useEffect(() => {
     if (hasHydrated && !token) router.push("/login");
   }, [token, hasHydrated, router]);
+
+  // Mark project as seen on mount (fire-and-forget, once per mount)
+  useEffect(() => {
+    if (!token || !id || seenCalledRef.current) return;
+    seenCalledRef.current = true;
+    api
+      .post(`/api/projects/${id}/seen`)
+      .then(() => qc.invalidateQueries({ queryKey: ["projects"] }))
+      .catch(() => {
+        // non-critical — ignore errors
+      });
+  }, [token, id, qc]);
 
   // Prefetch project so the cockpit's LandingView and BriefingPanel are
   // populated before they mount their own queries.

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from decimal import Decimal
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,7 @@ class Project(Base):
     briefing_was_truncated: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, default=False)
     briefing_state_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     monthly_budget_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     created_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
@@ -46,3 +47,19 @@ class ProjectMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     role: Mapped[str] = mapped_column(String, nullable=False, default="editor")
     joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserProjectView(Base):
+    """Per-user last-seen timestamp for a project. Drives the sidebar
+    unread-state-changes badge (changelog rows newer than last_seen_at)."""
+
+    __tablename__ = "user_project_views"
+    __table_args__ = (
+        UniqueConstraint("user_id", "project_id", name="user_project_views_unique"),
+        Index("user_project_views_user_idx", "user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

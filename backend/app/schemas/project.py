@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 class ProjectCreate(BaseModel):
     name: str
-    client_name: str
+    client_name: str = ""
 
 
 class ProjectUpdate(BaseModel):
@@ -37,11 +37,14 @@ class ProjectResponse(BaseModel):
     briefing_state_version: Optional[int] = None
     briefing_priority_order: Optional[list[str]] = None
     monthly_budget_usd: Optional[Decimal] = None
+    archived_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
     created_by: uuid.UUID
     document_count: int = 0
     open_task_count: int | None = None
+    failed_document_count: int = 0
+    unread_change_count: int = 0
     members: list[ProjectMemberOut] = []
 
 

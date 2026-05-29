@@ -1,5 +1,6 @@
 import shutil
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import structlog
@@ -11,8 +12,8 @@ from app.auth import get_current_user, get_project_member, require_role
 from app.config import settings
 from app.database import get_db
 from app.models.document import Document
-from app.models.project import Project, ProjectMember
-from app.models.state import ProjectState
+from app.models.project import Project, ProjectMember, UserProjectView
+from app.models.state import ProjectState, StateChangelog
 from app.models.user import User
 from app.schemas.project import (
     AddMemberRequest,
@@ -42,6 +43,8 @@ def _project_response(
     *,
     document_count: int = 0,
     open_task_count: int | None = None,
+    failed_document_count: int = 0,
+    unread_change_count: int = 0,
     members: list[ProjectMemberOut] | None = None,
 ) -> ProjectResponse:
     return ProjectResponse(
@@ -55,19 +58,47 @@ def _project_response(
         briefing_state_version=project.briefing_state_version,
         briefing_priority_order=project.briefing_priority_order,
         monthly_budget_usd=project.monthly_budget_usd,
+        archived_at=project.archived_at,
         created_at=project.created_at,
         updated_at=project.updated_at,
         created_by=project.created_by,
         document_count=document_count,
         open_task_count=open_task_count,
+        failed_document_count=failed_document_count,
+        unread_change_count=unread_change_count,
         members=members or [],
     )
 
 
-async def _enrich_single_project(project: Project, db: AsyncSession) -> ProjectResponse:
+async def _enrich_single_project(
+    project: Project, db: AsyncSession, user_id: uuid.UUID | None = None
+) -> ProjectResponse:
     doc_count = await db.scalar(
         select(func.count(Document.id)).where(Document.project_id == project.id)
     ) or 0
+
+    failed_count = await db.scalar(
+        select(func.count(Document.id)).where(
+            Document.project_id == project.id,
+            Document.processing_status == "failed",
+            Document.archived_at.is_(None),
+        )
+    ) or 0
+
+    unread_count = 0
+    if user_id is not None:
+        last_seen = await db.scalar(
+            select(UserProjectView.last_seen_at).where(
+                UserProjectView.user_id == user_id,
+                UserProjectView.project_id == project.id,
+            )
+        )
+        unread_q = select(func.count(StateChangelog.id)).where(
+            StateChangelog.project_id == project.id
+        )
+        if last_seen is not None:
+            unread_q = unread_q.where(StateChangelog.created_at > last_seen)
+        unread_count = await db.scalar(unread_q) or 0
 
     latest_state_row = await db.execute(
         select(ProjectState.state)
@@ -93,20 +124,26 @@ async def _enrich_single_project(project: Project, db: AsyncSession) -> ProjectR
         project,
         document_count=doc_count,
         open_task_count=open_task_count,
+        failed_document_count=failed_count,
+        unread_change_count=unread_count,
         members=members,
     )
 
 
 @router.get("", response_model=list[ProjectResponse])
 async def list_projects(
+    include_archived: bool = False,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
+    query = (
         select(Project)
         .join(ProjectMember, ProjectMember.project_id == Project.id)
         .where(ProjectMember.user_id == current_user.id)
     )
+    if not include_archived:
+        query = query.where(Project.archived_at.is_(None))
+    result = await db.execute(query)
     projects = result.scalars().all()
     if not projects:
         return []
@@ -121,6 +158,43 @@ async def list_projects(
         )
     ).all()
     doc_counts: dict[uuid.UUID, int] = {pid: cnt for pid, cnt in doc_counts_rows}
+
+    failed_counts_rows = (
+        await db.execute(
+            select(Document.project_id, func.count(Document.id))
+            .where(
+                Document.project_id.in_(project_ids),
+                Document.processing_status == "failed",
+                Document.archived_at.is_(None),
+            )
+            .group_by(Document.project_id)
+        )
+    ).all()
+    failed_counts: dict[uuid.UUID, int] = {pid: cnt for pid, cnt in failed_counts_rows}
+
+    # Unread state changes per project = changelog rows newer than this user's
+    # last_seen_at (or all rows if the project was never opened).
+    last_seen_rows = (
+        await db.execute(
+            select(UserProjectView.project_id, UserProjectView.last_seen_at).where(
+                UserProjectView.user_id == current_user.id,
+                UserProjectView.project_id.in_(project_ids),
+            )
+        )
+    ).all()
+    last_seen_map: dict[uuid.UUID, datetime] = {pid: ts for pid, ts in last_seen_rows}
+    changelog_rows = (
+        await db.execute(
+            select(StateChangelog.project_id, StateChangelog.created_at).where(
+                StateChangelog.project_id.in_(project_ids)
+            )
+        )
+    ).all()
+    unread_counts: dict[uuid.UUID, int] = {}
+    for pid, created_at in changelog_rows:
+        seen = last_seen_map.get(pid)
+        if seen is None or created_at > seen:
+            unread_counts[pid] = unread_counts.get(pid, 0) + 1
 
     # Pull all state rows for these projects, then reduce to the latest version per project.
     state_rows = (
@@ -157,6 +231,8 @@ async def list_projects(
             p,
             document_count=doc_counts.get(p.id, 0),
             open_task_count=open_task_counts.get(p.id),
+            failed_document_count=failed_counts.get(p.id, 0),
+            unread_change_count=unread_counts.get(p.id, 0),
             members=members_map.get(p.id, []),
         )
         for p in projects
@@ -225,11 +301,67 @@ async def create_project(
 @router.get("/{project_id}", response_model=ProjectResponse)
 async def get_project(
     project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     _member: ProjectMember = Depends(get_project_member),
 ):
     project = await _get_project_or_404(project_id, db)
-    return await _enrich_single_project(project, db)
+    return await _enrich_single_project(project, db, current_user.id)
+
+
+@router.post("/{project_id}/seen", status_code=status.HTTP_204_NO_CONTENT)
+async def mark_project_seen(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Upsert the current user's last-seen timestamp for this project. Clears
+    the sidebar unread-changes badge. Called on cockpit mount."""
+    view = (
+        await db.execute(
+            select(UserProjectView).where(
+                UserProjectView.user_id == current_user.id,
+                UserProjectView.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if view is None:
+        db.add(UserProjectView(user_id=current_user.id, project_id=project_id, last_seen_at=func.now()))
+    else:
+        view.last_seen_at = func.now()
+    await db.commit()
+
+
+@router.post("/{project_id}/archive", response_model=ProjectResponse)
+async def archive_project(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(require_role("owner")),
+):
+    project = await _get_project_or_404(project_id, db)
+    project.archived_at = datetime.now(project.created_at.tzinfo)
+    project.status = "archived"
+    await db.commit()
+    await db.refresh(project)
+    return await _enrich_single_project(project, db, current_user.id)
+
+
+@router.post("/{project_id}/unarchive", response_model=ProjectResponse)
+async def unarchive_project(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(require_role("owner")),
+):
+    project = await _get_project_or_404(project_id, db)
+    project.archived_at = None
+    if project.status == "archived":
+        project.status = "active"
+    await db.commit()
+    await db.refresh(project)
+    return await _enrich_single_project(project, db, current_user.id)
 
 
 @router.patch("/{project_id}", response_model=ProjectResponse)
