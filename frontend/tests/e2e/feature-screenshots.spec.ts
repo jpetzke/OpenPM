@@ -57,3 +57,20 @@ test("F3 kinetic briefing", async ({ page }) => {
   await page.waitForTimeout(1100); // let the staggered reveal settle
   await page.screenshot({ path: "test-results/f3-briefing-modal.png", fullPage: false });
 });
+
+test("F4 diff timeline", async ({ page }) => {
+  const projectId = await getOrCreateProjectId();
+  await page.goto(`/projects/${projectId}`);
+  await page.waitForLoadState("load");
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: /Vollständigen Status anzeigen/i }).click();
+  await page.waitForTimeout(700);
+  // Scroll the modal to the change history.
+  await page.getByText("Verlauf der Änderungen").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "test-results/f4-timeline.png", fullPage: false });
+  // Open the diff for the most recent version.
+  await page.locator("ol li button").first().click();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: "test-results/f4-diff-modal.png", fullPage: false });
+});
