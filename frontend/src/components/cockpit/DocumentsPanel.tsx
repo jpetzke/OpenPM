@@ -14,6 +14,10 @@ import {
   Trash2,
   UploadCloud,
   MoreVertical,
+  ChevronRight,
+  ChevronDown,
+  Layers,
+  CheckCircle2,
 } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { toast } from "sonner";
@@ -30,6 +34,7 @@ import { TextPasteModal } from "@/components/upload/TextPasteModal";
 import { DiffPreviewModal } from "@/components/upload/DiffPreviewModal";
 import { startUploadWithFlow } from "@/lib/uploadFlow";
 import { formatRelativeTime } from "@/lib/utils";
+import { BULK_UPLOAD_THRESHOLD } from "@/lib/ui-config";
 import type { Document, DocumentStatus } from "@/types/document";
 
 interface Props {
@@ -219,6 +224,34 @@ export function DocumentsPanel({ projectId }: Props) {
   const childIdSet = new Set(sorted.filter((d) => d.parent_document_id).map((d) => d.id));
   const topLevelDocs = sorted.filter((d) => !childIdSet.has(d.id));
 
+  // Section S: group documents from the same ChangeSession once the burst hits
+  // BULK_UPLOAD_THRESHOLD members. Grouping is backend-delivered via
+  // change_session_id (survives reload), not a frontend heuristic.
+  const sessionMembers = new Map<string, Document[]>();
+  for (const d of topLevelDocs) {
+    if (!d.change_session_id) continue;
+    const arr = sessionMembers.get(d.change_session_id) ?? [];
+    arr.push(d);
+    sessionMembers.set(d.change_session_id, arr);
+  }
+  type RenderEntry =
+    | { kind: "single"; doc: Document }
+    | { kind: "group"; sessionId: string; docs: Document[] };
+  const entries: RenderEntry[] = [];
+  const emittedGroups = new Set<string>();
+  for (const d of topLevelDocs) {
+    const sid = d.change_session_id;
+    const members = sid ? sessionMembers.get(sid) : undefined;
+    if (sid && members && members.length >= BULK_UPLOAD_THRESHOLD) {
+      if (!emittedGroups.has(sid)) {
+        emittedGroups.add(sid);
+        entries.push({ kind: "group", sessionId: sid, docs: members });
+      }
+    } else {
+      entries.push({ kind: "single", doc: d });
+    }
+  }
+
   return (
     <section
       className="rounded-lg p-3.5 relative transition-default"
@@ -303,14 +336,24 @@ export function DocumentsPanel({ projectId }: Props) {
         </p>
       ) : (
         <ul className="flex flex-col gap-0.5" data-testid="documents-list">
-          {topLevelDocs.map((doc) => (
-            <DocumentRow
-              key={doc.id}
-              doc={doc}
-              projectId={projectId}
-              onDelete={() => requestDelete(doc)}
-            />
-          ))}
+          {entries.map((entry) =>
+            entry.kind === "group" ? (
+              <BulkUploadGroup
+                key={entry.sessionId}
+                sessionId={entry.sessionId}
+                docs={entry.docs}
+                projectId={projectId}
+                onDelete={requestDelete}
+              />
+            ) : (
+              <DocumentRow
+                key={entry.doc.id}
+                doc={entry.doc}
+                projectId={projectId}
+                onDelete={() => requestDelete(entry.doc)}
+              />
+            ),
+          )}
         </ul>
       )}
 
@@ -514,6 +557,129 @@ function DocumentRow({
             }
           }}
         />
+      )}
+    </li>
+  );
+}
+
+/**
+ * Section S: collapsible header for a burst of ≥ BULK_UPLOAD_THRESHOLD documents
+ * sharing a ChangeSession. Live counts (done / processing / failed) come from
+ * the pipeline store, overlaying each doc's DB status. Once the backend closes
+ * the session it surfaces the aggregate extraction summary.
+ */
+function BulkUploadGroup({
+  sessionId,
+  docs,
+  projectId,
+  onDelete,
+}: {
+  sessionId: string;
+  docs: Document[];
+  projectId: string;
+  onDelete: (doc: Document) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  const liveStatuses = usePipelineStore(
+    useShallow((s) => docs.map((d) => s.pipelines[d.id])),
+  );
+  const closedSession = usePipelineStore((s) => s.perProjectLastClosed[projectId]);
+
+  let done = 0;
+  let processing = 0;
+  let failed = 0;
+  docs.forEach((d, i) => {
+    const status = liveStatuses[i] ?? d.processing_status;
+    if (status === "done" || status === "completed_partial") done += 1;
+    else if (status === "failed") failed += 1;
+    else processing += 1; // pending | processing
+  });
+
+  const total = docs.length;
+  const isClosed = closedSession?.id === sessionId;
+
+  // Aggregate extraction summary from the closed-session payload.
+  const summary = (closedSession?.id === sessionId ? closedSession?.summary : null) as
+    | Record<string, number>
+    | null;
+  const summaryParts: string[] = [];
+  if (summary) {
+    const map: Array<[string, string, string]> = [
+      ["tasks_added", "Task", "Tasks"],
+      ["deadlines_added", "Deadline", "Deadlines"],
+      ["decisions_added", "Entscheidung", "Entscheidungen"],
+      ["contacts_added", "Kontakt", "Kontakte"],
+      ["blockers_added", "Blocker", "Blocker"],
+    ];
+    for (const [key, sing, plur] of map) {
+      const n = Number(summary[key] ?? 0);
+      if (n > 0) summaryParts.push(`${n} neue ${n === 1 ? sing : plur}`);
+    }
+  }
+  if (failed > 0) summaryParts.push(`${failed} ${failed === 1 ? "Fehler" : "Fehler"}`);
+
+  return (
+    <li
+      data-testid="bulk-upload-group"
+      data-session-id={sessionId}
+      className="rounded transition-default"
+      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+    >
+      <button
+        type="button"
+        data-testid="bulk-group-header"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 px-2 py-1.5 text-[13px] text-left"
+        style={{ color: "var(--text-secondary)" }}
+      >
+        {expanded ? (
+          <ChevronDown size={12} className="shrink-0" style={{ color: "var(--text-muted)" }} />
+        ) : (
+          <ChevronRight size={12} className="shrink-0" style={{ color: "var(--text-muted)" }} />
+        )}
+        {processing > 0 ? (
+          <Loader2 size={12} className="animate-spin shrink-0" style={{ color: "var(--accent)" }} />
+        ) : (
+          <Layers size={12} className="shrink-0" style={{ color: "var(--text-muted)" }} />
+        )}
+        <span className="flex-1 min-w-0 truncate font-medium">
+          {total} Dateien hochgeladen
+        </span>
+        <span className="text-[11px] tabular-nums shrink-0" style={{ color: "var(--text-muted)" }}>
+          {processing > 0
+            ? `${done} von ${total} fertig${failed > 0 ? ` · ${failed} Fehler` : ""}`
+            : isClosed && summaryParts.length > 0
+              ? "abgeschlossen"
+              : failed > 0
+                ? `${done} fertig · ${failed} Fehler`
+                : `${done} fertig`}
+        </span>
+      </button>
+
+      {isClosed && summaryParts.length > 0 && (
+        <div
+          data-testid="bulk-group-summary"
+          className="flex items-center gap-1.5 px-2 pb-1.5 pl-7 text-[11px]"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <CheckCircle2 size={11} className="shrink-0" style={{ color: "var(--accent)" }} />
+          <span className="truncate">{summaryParts.join(" · ")}</span>
+        </div>
+      )}
+
+      {expanded && (
+        <ul className="flex flex-col gap-0.5 px-1 pb-1">
+          {docs.map((doc) => (
+            <DocumentRow
+              key={doc.id}
+              doc={doc}
+              projectId={projectId}
+              onDelete={() => onDelete(doc)}
+            />
+          ))}
+        </ul>
       )}
     </li>
   );

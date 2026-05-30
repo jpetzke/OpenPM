@@ -37,4 +37,5 @@ export interface Document {
   uploaded_at: string;
   source_format: string | null;
   parent_document_id: string | null;
+  change_session_id?: string | null;
 }

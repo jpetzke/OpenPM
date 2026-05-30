@@ -33,6 +33,7 @@ class DocumentResponse(BaseModel):
     uploaded_at: datetime
     source_format: str | None = None
     parent_document_id: uuid.UUID | None = None
+    change_session_id: uuid.UUID | None = None
     extraction_token_usage: dict | None = None
 
 

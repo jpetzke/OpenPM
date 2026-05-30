@@ -178,11 +178,20 @@ def _new_document_row(
     )
 
 
-async def _attach_change_session(project_id: uuid.UUID, db: AsyncSession) -> uuid.UUID:
-    """Return the active change session id, opening one if needed."""
+async def _attach_change_session(
+    project_id: uuid.UUID, db: AsyncSession, doc: Document | None = None
+) -> uuid.UUID:
+    """Return the active change session id, opening one if needed.
+
+    When ``doc`` is given, persist the session id on the row so the UI can
+    group burst-uploaded documents by ``change_session_id`` even after reload
+    (section S — grouping is backend-delivered, not a frontend heuristic).
+    """
     redis = await _redis()
     try:
         session = await change_session_service.get_or_open(project_id, db, redis)
+        if doc is not None:
+            doc.change_session_id = session.id
         # Upload counts as activity → resets the stale clock + clears marker.
         await db.execute(
             update(Project)
@@ -381,7 +390,7 @@ async def upload_document(
     await db.commit()
     await db.refresh(doc)
 
-    change_session_id = await _attach_change_session(project_id, db)
+    change_session_id = await _attach_change_session(project_id, db, doc)
     await db.refresh(doc)
     await _publish_queued(project_id, doc, change_session_id)
     await _enqueue_pipeline(str(doc.id), job_id=arq_job_id)
@@ -462,7 +471,7 @@ async def create_text_document(
     await db.commit()
     await db.refresh(doc)
 
-    change_session_id = await _attach_change_session(project_id, db)
+    change_session_id = await _attach_change_session(project_id, db, doc)
     await db.refresh(doc)
     await _publish_queued(project_id, doc, change_session_id)
     await _enqueue_pipeline(str(doc.id), job_id=arq_job_id)
@@ -777,7 +786,7 @@ async def replace_document(
     await db.commit()
     await db.refresh(new_doc)
 
-    change_session_id = await _attach_change_session(project_id, db)
+    change_session_id = await _attach_change_session(project_id, db, new_doc)
     await db.refresh(new_doc)
     await _publish_queued(project_id, new_doc, change_session_id)
     await _enqueue_pipeline(str(new_doc.id), job_id=arq_job_id)
@@ -848,7 +857,7 @@ async def reprocess_document(
     doc.pipeline_updated_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(doc)
-    change_session_id = await _attach_change_session(project_id, db)
+    change_session_id = await _attach_change_session(project_id, db, doc)
     await db.refresh(doc)
     await _publish_queued(project_id, doc, change_session_id)
     await _enqueue_pipeline(str(doc.id))

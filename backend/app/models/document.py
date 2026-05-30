@@ -62,6 +62,11 @@ class Document(Base):
         ForeignKey("documents.id", ondelete="SET NULL"),
         nullable=True,
     )
+    change_session_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("change_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     # Self-referential relationships for EML attachment grouping
     parent: Mapped[Optional["Document"]] = relationship(

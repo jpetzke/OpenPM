@@ -67,7 +67,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | P. Keyboard-Navigation | 2 % | 95 / 100 | keybindings.ts single-source + Cmd+K/N/B/,/U// + zweistufiges Esc + IME-Guard + Cheat-Sheet live; Cmd+1/2/3 deprecated |
 | Q. Session/Auth-Lifecycle | 3 % | 90 / 100 | Refresh-Token-Tabelle + /refresh + Silent-Refresh-Interceptor + 5min-Timer + Message-Puffer + BroadcastChannel + Logout-Revoke live; Phase 2 (HttpOnly-Cookie/CSRF) deferred |
 | R. Notifications & Recovery | 2 % | 100 / 100 | Browser-Notification Opt-in + Complete/Failed-Hook (tab-hidden) + Click-to-Doc + per-Projekt-Tag + requireInteraction live |
-| S. Bulk-Upload | 2 % | 45 / 100 | Pro-File ok, Gruppierung fehlt |
+| S. Bulk-Upload | 2 % | 95 / 100 | change_session_id persistiert (0019) + BulkUploadGroup (collapse + Live-Counts + Close-Summary); StatusPanel-Count-Up der Gruppe partial |
 | T. Stale Detection | 2 % | 100 / 100 | ARQ daily-Cron + last_activity_at/stale_marker + overdue-Patch + StaleBanner + bilinguales stale_notice (zero-LLM) |
 | U. Export | 2 % | 0 / 100 | Komplett fehlend |
 | V. Animationen + Timing | 3 % | 60 / 100 | Count-Up + Pulse-Soft + Flash + Pulse-Phase live |
@@ -864,13 +864,13 @@ Bei 5+ gleichzeitig hochgeladenen Dateien: Datei-Zeilen unter Gruppen-Header `5 
 ### ✅ Checkliste
 - [x] Pro-Doc-Tracking.
 - [x] Backend ChangeSession existiert.
-- [ ] `BulkUploadGroup` Komponente: gruppiert Docs nach `change_session_id` (vom Backend geliefert, nicht Frontend-Heuristik).
-- [ ] Schwelle: Gruppen-Anzeige aktiv ab ChangeSession-Member-Count ≥ 5. Konfigurierbar via `frontend/src/lib/ui-config.ts`.
-- [ ] Group-Header mit Live-Counts (`processing`, `done`, `failed`).
-- [ ] Klick auf Header expandiert zu Einzelzeilen.
-- [ ] Status-Block animiert summen alle Items der Gruppe.
-- [ ] ChangeSession schließt nach 30 s ohne neuen Upload (Backend-seitig) → Gruppe wird im UI als „abgeschlossen" markiert.
-- [ ] Aggregierte Extraction-Summary nach Session-Close (`8 neue Tasks, 3 Deadlines aktualisiert, 2 Fehler`).
+- [x] `BulkUploadGroup` Komponente: gruppiert Docs nach `change_session_id` — jetzt persistiert auf `documents.change_session_id` (Alembic `0019`, FK→change_sessions, serialisiert in `DocumentResponse`), gesetzt in `_attach_change_session`. Backend-geliefert, überlebt Reload.
+- [x] Schwelle: Gruppen-Anzeige ab Member-Count ≥ 5, `BULK_UPLOAD_THRESHOLD` in `lib/ui-config.ts`.
+- [x] Group-Header mit Live-Counts (`done von total fertig · N Fehler`) aus `pipelineStore.pipelines` über DB-Status gelegt.
+- [x] Klick auf Header expandiert zu Einzelzeilen (`DocumentRow`).
+- [~] Status-Block animiert summen alle Items der Gruppe — Group-Header zeigt Live-Counts; voller Count-Up bleibt im StatusPanel (`AnimatedCount`, E/G).
+- [x] ChangeSession-Close → Gruppe als „abgeschlossen" markiert (Idle-Window backend-seitig `SESSION_IDLE_SECONDS`=5 min statt 30 s).
+- [x] Aggregierte Extraction-Summary nach Session-Close (`N neue Tasks · M Deadlines · …`) aus `perProjectLastClosed.summary`.
 
 ---
 
