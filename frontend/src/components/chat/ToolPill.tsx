@@ -1,10 +1,8 @@
 "use client";
 import { useState } from "react";
 import {
-  ChevronDown,
   ChevronRight,
   Loader2,
-  Check,
   Search,
   Files,
   FileText,
@@ -15,9 +13,10 @@ import {
 } from "lucide-react";
 import type { ActiveToolCall } from "@/types/chat";
 
-// Copilot-respectful chips: each tool call announces its intent in plain
-// language while running, and resolves to a one-line result. Expand to see
-// exactly which tool ran with what arguments — nothing happens off-screen.
+// A single agent tool call, rendered as a quiet, claude.ai-style collapsible
+// row that sits inline at the point in the answer where the tool fired.
+// Collapsed by default: one muted line with an icon + chevron. Click to unfold
+// the exact tool name, arguments, and one-line result — nothing runs off-screen.
 const TOOL_ICONS: Record<string, typeof Search> = {
   search_documents: Search,
   list_documents: Files,
@@ -27,6 +26,7 @@ const TOOL_ICONS: Record<string, typeof Search> = {
   update_task_status: PencilLine,
 };
 
+// Present-tense, while-running labels. Once done we prefer the result summary.
 const TOOL_LABELS: Record<string, string> = {
   search_documents: "Durchsucht Dokumente",
   list_documents: "Listet Dokumente auf",
@@ -45,58 +45,77 @@ export function ToolPill({ toolCall }: Props) {
   const Icon = TOOL_ICONS[toolCall.tool_name] ?? Wrench;
   const label = TOOL_LABELS[toolCall.tool_name] ?? toolCall.tool_name;
   const isRunning = toolCall.status === "running";
-  const accent = isRunning ? "var(--accent)" : "var(--success)";
+  const headline = isRunning
+    ? `${label}…`
+    : (toolCall.result_summary ?? label);
+  const args = Object.entries(toolCall.args ?? {});
 
   return (
-    <div
-      className="inline-flex flex-col rounded-md text-xs overflow-hidden max-w-full"
-      style={{
-        background: "var(--bg-elevated)",
-        border: "1px solid var(--border)",
-        borderLeft: `2px solid ${accent}`,
-      }}
-    >
+    <div className="my-1.5">
       <button
-        className="flex items-center gap-1.5 px-2.5 py-1.5 min-w-0"
+        type="button"
+        data-testid="tool-row"
         onClick={() => setExpanded((e) => !e)}
-        style={{ color: isRunning ? "var(--accent)" : "var(--text-secondary)" }}
+        className="group inline-flex max-w-full items-center gap-1.5 rounded-md -ml-1.5 px-1.5 py-1 text-xs transition-default"
+        style={{ color: isRunning ? "var(--accent)" : "var(--text-muted)" }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.background =
+            "var(--bg-elevated)";
+          if (!isRunning)
+            (e.currentTarget as HTMLButtonElement).style.color =
+              "var(--text-secondary)";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+          if (!isRunning)
+            (e.currentTarget as HTMLButtonElement).style.color =
+              "var(--text-muted)";
+        }}
+        aria-expanded={expanded}
       >
         {isRunning ? (
-          <Loader2 size={12} className="animate-spin shrink-0" />
+          <Loader2 size={13} className="shrink-0 animate-spin" />
         ) : (
-          <Check size={12} strokeWidth={2.5} className="shrink-0" style={{ color: "var(--success)" }} />
+          <Icon size={13} className="shrink-0" style={{ opacity: 0.85 }} />
         )}
-        <Icon size={12} className="shrink-0" style={{ color: accent }} />
         <span className={`truncate ${isRunning ? "animate-pipeline-pulse" : ""}`}>
-          {isRunning ? `${label}…` : (toolCall.result_summary ?? label)}
+          {headline}
         </span>
-        {expanded ? (
-          <ChevronDown size={11} className="shrink-0 ml-0.5" />
-        ) : (
-          <ChevronRight size={11} className="shrink-0 ml-0.5" />
-        )}
+        <ChevronRight
+          size={12}
+          className="shrink-0 transition-transform"
+          style={{
+            transform: expanded ? "rotate(90deg)" : "none",
+            opacity: 0.6,
+          }}
+        />
       </button>
 
       {expanded && (
         <div
-          className="px-2.5 pb-2 pt-1.5 space-y-1 border-t"
-          style={{ borderColor: "var(--border)" }}
+          className="mt-1 ml-1.5 space-y-1 pl-3 text-xs animate-fade-in"
+          style={{ borderLeft: "1px solid var(--border)" }}
         >
-          <div className="font-mono text-[11px]" style={{ color: "var(--text-muted)" }}>
+          <div
+            className="font-mono text-[11px]"
+            style={{ color: "var(--text-muted)" }}
+          >
             {toolCall.tool_name}
           </div>
-          {Object.keys(toolCall.args).length > 0 && (
+          {args.length > 0 && (
             <div className="space-y-0.5" style={{ color: "var(--text-muted)" }}>
-              {Object.entries(toolCall.args).map(([k, v]) => (
+              {args.map(([k, v]) => (
                 <div key={k} className="break-words">
-                  <span style={{ color: "var(--text-secondary)" }}>{k}:</span>{" "}
-                  <span className="font-mono">{String(v).slice(0, 120)}</span>
+                  <span style={{ color: "var(--text-secondary)" }}>{k}</span>:{" "}
+                  <span className="font-mono">{String(v).slice(0, 160)}</span>
                 </div>
               ))}
             </div>
           )}
-          {toolCall.result_summary && (
-            <div style={{ color: "var(--text-secondary)" }}>→ {toolCall.result_summary}</div>
+          {toolCall.result_summary && !isRunning && (
+            <div style={{ color: "var(--text-secondary)" }}>
+              → {toolCall.result_summary}
+            </div>
           )}
         </div>
       )}

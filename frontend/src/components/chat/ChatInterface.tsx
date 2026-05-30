@@ -8,7 +8,6 @@ import { api } from "@/lib/api";
 import { useChatStream } from "@/hooks/useChatStream";
 import { ChatMessageComponent } from "./ChatMessage";
 import { ChatInput } from "./ChatInput";
-import { ToolPill } from "./ToolPill";
 import { MutationCard } from "./MutationCard";
 import type { ChatMessage, ModelInfo } from "@/types/chat";
 
@@ -37,7 +36,7 @@ export function ChatInterface({
   onInitialPromptHandled,
 }: ChatInterfaceProps) {
   const qc = useQueryClient();
-  const { streaming, sending, streamingText, activeTools, lastError, currentSessionId, activeToolCalls, mutationCards, sendMessage, abort, clearError, startNewSession } = useChatStream(projectId);
+  const { streaming, sending, streamingText, lastError, currentSessionId, activeToolCalls, mutationCards, sendMessage, abort, clearError, startNewSession } = useChatStream(projectId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<ChatMessage[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
@@ -101,12 +100,12 @@ export function ChatInterface({
 
     sendMessage(
       content,
-      async (assistantText, success) => {
+      async (assistantText, success, _errorCode, invocations) => {
         // The streaming bubble is gone (useChatStream clears streamingText
         // atomically). Keep an optimistic assistant up until the history
         // refetch resolves, so the message never visibly disappears between
         // stream-end and the new history landing.
-        if (success && assistantText) {
+        if (success && (assistantText || invocations?.length)) {
           setOptimisticMessages((prev) => [
             ...prev,
             {
@@ -115,7 +114,7 @@ export function ChatInterface({
               user_id: null,
               role: "assistant",
               content: assistantText,
-              tool_calls: null,
+              tool_calls: invocations?.length ? { invocations } : null,
               tool_results: null,
               state_version: null,
               model: selectedModel ?? null,
@@ -163,10 +162,11 @@ export function ChatInterface({
     (m) => !recentHistoryContents.has(`${m.role}::${m.content}`),
   );
   const allMessages = [...historyList, ...filteredOptimistic];
-  // Streaming bubble: only render while text is actively flowing. The atomic
-  // clear in flushCompletionIfReady drops streamingText the moment streaming
-  // ends, so this guard collapses cleanly without a "ghost frame".
-  const shouldRenderStreamingMessage = streaming && Boolean(streamingText);
+  // Streaming bubble: render while text is flowing OR a tool is running (tool
+  // rows render inline). The atomic clear in flushCompletionIfReady drops
+  // streamingText the moment streaming ends, so this collapses without a ghost.
+  const shouldRenderStreamingMessage =
+    streaming && (Boolean(streamingText) || activeToolCalls.length > 0);
 
   return (
     <div className="flex flex-col h-full">
@@ -265,7 +265,9 @@ export function ChatInterface({
               user_id: null,
               role: "assistant",
               content: streamingText,
-              tool_calls: null,
+              tool_calls: activeToolCalls.length
+                ? { invocations: activeToolCalls }
+                : null,
               tool_results: null,
               state_version: null,
               model: selectedModel ?? null,
@@ -274,21 +276,9 @@ export function ChatInterface({
             isStreaming
           />
         )}
-        {sending && !streamingText && (
+        {sending && !streamingText && activeToolCalls.length === 0 && (
           <div className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
             Anfrage wird gesendet…
-          </div>
-        )}
-        {activeToolCalls.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1">
-            {activeToolCalls.map(tc => (
-              <ToolPill key={tc.call_id} toolCall={tc} />
-            ))}
-          </div>
-        )}
-        {activeTools.length > 0 && activeToolCalls.length === 0 && (
-          <div className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
-            Nutzt Tools: {activeTools.join(", ")}
           </div>
         )}
         <div ref={bottomRef} />

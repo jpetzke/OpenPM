@@ -44,3 +44,4 @@ next-env.d.ts
 /playwright-report
 /test-results
 /tests/e2e/.auth
+/tests/e2e/__screens__

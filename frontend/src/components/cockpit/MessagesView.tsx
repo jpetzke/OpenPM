@@ -6,7 +6,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Settings as SettingsIcon, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { ChatMessageComponent } from "@/components/chat/ChatMessage";
-import { ToolPill } from "@/components/chat/ToolPill";
 import { MutationCard } from "@/components/chat/MutationCard";
 import type {
   ChatMessage,
@@ -72,7 +71,7 @@ export function MessagesView({
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [history, stream.streamingText, optimisticMessages]);
+  }, [history, stream.streamingText, stream.activeToolCalls, optimisticMessages]);
 
   // When stream ends, refetch history for the active session.
   // The parent already kicks off the refetch via the completion callback, but
@@ -95,8 +94,11 @@ export function MessagesView({
     (m) => !recentHistoryContents.has(`${m.role}::${m.content}`),
   );
   const allMessages = [...historyList, ...filteredOptimistic];
+  // Render the live assistant bubble as soon as the agent starts working —
+  // either prose is flowing or a tool fired first (tools render inline).
   const shouldRenderStreamingMessage =
-    stream.streaming && Boolean(stream.streamingText);
+    stream.streaming &&
+    (Boolean(stream.streamingText) || stream.activeToolCalls.length > 0);
 
   // Defensive dedup: while a reply is actively streaming, never also show a
   // finalized assistant message that duplicates the in-flight text (the saved
@@ -203,7 +205,10 @@ export function MessagesView({
               user_id: null,
               role: "assistant",
               content: stream.streamingText,
-              tool_calls: null,
+              // Tool rows render inline at their text offset, live.
+              tool_calls: stream.activeToolCalls.length
+                ? { invocations: stream.activeToolCalls }
+                : null,
               tool_results: null,
               state_version: null,
               model: selectedModel ?? null,
@@ -212,41 +217,9 @@ export function MessagesView({
             isStreaming
           />
         )}
-        {stream.sending && !stream.streamingText && (
+        {stream.sending && !stream.streamingText && stream.activeToolCalls.length === 0 && (
           <div className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
             Anfrage wird gesendet…
-          </div>
-        )}
-        {stream.activeToolCalls.length > 0 && (
-          <div
-            className="mb-3 rounded-lg border p-2.5 animate-fade-in"
-            style={{
-              background: "var(--bg-surface)",
-              borderColor: "var(--border)",
-            }}
-          >
-            <div className="flex items-center gap-1.5 mb-2">
-              <span
-                className="inline-flex h-1.5 w-1.5 rounded-full animate-pipeline-pulse"
-                style={{ background: "var(--accent)" }}
-              />
-              <span
-                className="text-[10px] font-semibold uppercase tracking-widest"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Assistent arbeitet
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {stream.activeToolCalls.map((tc) => (
-                <ToolPill key={tc.call_id} toolCall={tc} />
-              ))}
-            </div>
-          </div>
-        )}
-        {stream.activeTools.length > 0 && stream.activeToolCalls.length === 0 && (
-          <div className="mb-4 text-xs" style={{ color: "var(--text-muted)" }}>
-            Nutzt Tools: {stream.activeTools.join(", ")}
           </div>
         )}
         <div ref={bottomRef} />

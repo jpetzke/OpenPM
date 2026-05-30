@@ -131,12 +131,12 @@ export function CockpitLayout({ projectId }: Props) {
 
       sendMessage(
         content,
-        async (assistantText, success, errorCode) => {
+        async (assistantText, success, errorCode, invocations) => {
           // If auth expired and refresh also failed, buffer the message for replay
           if (!success && errorCode === "auth_expired") {
             bufferPendingMessage(projectId, currentSessionId, content);
           }
-          if (success && assistantText) {
+          if (success && (assistantText || invocations?.length)) {
             setOptimisticMessages((prev) => [
               ...prev,
               {
@@ -145,7 +145,9 @@ export function CockpitLayout({ projectId }: Props) {
                 user_id: null,
                 role: "assistant",
                 content: assistantText,
-                tool_calls: null,
+                // Carry the finished tool rows forward so they stay on screen
+                // (at the right offset) until the persisted history lands.
+                tool_calls: invocations?.length ? { invocations } : null,
                 tool_results: null,
                 state_version: null,
                 model: selectedModel ?? null,

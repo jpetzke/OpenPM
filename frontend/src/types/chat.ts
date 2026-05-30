@@ -41,6 +41,12 @@ export interface ActiveToolCall {
   args: Record<string, unknown>;
   result_summary?: string;
   status: "running" | "done";
+  /**
+   * Character offset into the assistant's answer text at which this tool call
+   * fired. Used to interleave the collapsed tool row at the correct position in
+   * the conversation, both live and when rehydrating from history.
+   */
+  text_offset?: number;
 }
 
 export interface MutationCardData {

@@ -201,10 +201,12 @@ Der aktuelle Projektstand (Tasks, Kontakte, Deadlines, Entscheidungen, Blocker, 
 </context_rules>
 
 <grounding>
-Der <project_context> enthält nur KURZE Titel/Zusammenfassungen der Abschnitte — NICHT den vollständigen Dokumenttext.
-- Will der User den genauen Wortlaut, Details, konkrete Werte/Fristen/Paragraphen oder "was genau / wörtlich steht in …" und das steht nicht ausgeschrieben im Kontext → ZWINGEND zuerst search_documents aufrufen, dann auf Basis der Treffer antworten.
-- Zitiere NIE wörtlich (Anführungszeichen, Blockzitat) aus einem Dokument, ohne es vorher per search_documents/get_document_content geladen zu haben. Ein Abschnittstitel im Projektstand ist KEIN Beleg für den Wortlaut.
-- Reicht ein Snippet nicht, hol mit get_document_content den vollen Text.
+Der <project_context> enthält nur KURZE Zusammenfassungen der Abschnitte — NICHT den vollständigen Dokumenttext, und Zusammenfassungen können unvollständig sein (einzelne Werte/Zeilen können fehlen).
+- Will der User einen präzisen Wert (Zahl, Seitenzahl, Frist, ECTS, Paragraph, Wortlaut) und der Kontext liefert ihn nicht eindeutig und vollständig → ZWINGEND erst die Quelle laden: search_documents, und bei Tabellen/Staffelungen/Aufzählungen den VOLLEN Dokumenttext via get_document_content (ein Snippet zeigt oft nur einen Teil der Liste).
+- EXTRAPOLIERE oder RATE NIEMALS Zahlen/Werte. Wenn die exakt passende Zeile (z. B. die Stufe für genau diese ECTS/Dauer) nicht in der Quelle steht, sag das — erfinde keine Zwischen-/Folgewerte.
+- Steht ein Wert explizit im Dokument, gib ihn EXAKT wieder. Wandle einen klaren, dokumentierten Wert NICHT in vage Sprache ("üblicherweise", "mindestens", "ca.", "bei Unsicherheit Rücksprache") um. Vage wird nur, was das Dokument selbst vage lässt.
+- Verbinde Projektdaten mit Dokumentregeln: kennst du aus dem Kontext einen Projektwert (z. B. Dauer/ECTS dieses Praktikums) und das Dokument hat eine passende Stufe, nenn die exakt zutreffende Stufe — nicht alle.
+- Zitiere NIE wörtlich, ohne die Quelle vorher geladen zu haben. Ein Abschnittstitel ist KEIN Beleg für den Wortlaut.
 </grounding>
 
 <tool_routing>
@@ -289,8 +291,14 @@ def _render_state_digest(state: dict | None) -> str:
 
     for section in state.get("dynamic_sections", []) or []:
         items = section.get("items", []) or []
-        titles = ", ".join(_truncate(i.get("title"), 60) for i in items if i.get("title"))
-        lines.append(f"{section.get('title') or section.get('kind') or 'Abschnitt'}: {titles}")
+        lines.append(f"{section.get('title') or section.get('kind') or 'Abschnitt'}:")
+        for i in items:
+            title = _truncate(i.get("title"), 80)
+            summ = _truncate(i.get("summary") or i.get("description"), 220)
+            if title and summ:
+                lines.append(f"  - {title}: {summ}")
+            elif title or summ:
+                lines.append(f"  - {title or summ}")
 
     custom = state.get("custom") or {}
     if custom:
@@ -831,7 +839,11 @@ async def chat(
     # Streaming generator.
     async def generate():
         collected: list[str] = []
-        tool_calls_log: list[str] = []
+        char_count = 0
+        # Ordered tool invocations, each anchored to the answer-text offset at
+        # which it fired. The frontend replays this list to interleave collapsed
+        # tool rows at the correct position in the conversation (claude.ai style).
+        invocations: list[dict] = []
         error_occurred = False
         disconnected = False
         usage_total: dict | None = None
@@ -848,12 +860,31 @@ async def chat(
                     break
 
                 if event["type"] == "content_delta":
-                    collected.append(event["delta"])
-                    yield f"data: {json.dumps({'type': 'content_delta', 'delta': event['delta']})}\n\n"
+                    delta = event["delta"]
+                    collected.append(delta)
+                    char_count += len(delta)
+                    yield f"data: {json.dumps({'type': 'content_delta', 'delta': delta})}\n\n"
                 elif event["type"] == "tool_call":
-                    tool_calls_log.extend(event["tools"])
                     yield f"data: {json.dumps({'type': 'tool_call', 'tools': event['tools']})}\n\n"
-                elif event["type"] in ("tool_call_start", "tool_call_end", "mutation_card"):
+                elif event["type"] == "tool_call_start":
+                    # Anchor this call to the current answer-text offset so it can
+                    # be re-placed inline on reload, then forward the offset live.
+                    invocations.append({
+                        "call_id": event["call_id"],
+                        "tool_name": event["tool_name"],
+                        "args": event.get("args") or {},
+                        "text_offset": char_count,
+                        "status": "running",
+                    })
+                    yield f"data: {json.dumps({**event, 'text_offset': char_count})}\n\n"
+                elif event["type"] == "tool_call_end":
+                    for inv in invocations:
+                        if inv["call_id"] == event.get("call_id"):
+                            inv["result_summary"] = event.get("result_summary")
+                            inv["status"] = "done"
+                            break
+                    yield f"data: {json.dumps(event)}\n\n"
+                elif event["type"] == "mutation_card":
                     yield f"data: {json.dumps(event)}\n\n"
                 elif event["type"] == "usage":
                     # Per-round usage — forward to client for real-time display
@@ -898,15 +929,16 @@ async def chat(
                 "purpose": "chat",
             }
 
-        # Save whatever we collected (partial or full).
-        if collected:
+        # Save whatever we collected (partial or full). A turn that ran tools
+        # but produced no prose still persists its invocations.
+        if collected or invocations:
             full_content = "".join(collected)
             assistant_msg = ChatMessage(
                 project_id=project_id,
                 role="assistant",
                 session_id=session_id,
                 content=full_content,
-                tool_calls={"calls": tool_calls_log} if tool_calls_log else None,
+                tool_calls={"invocations": invocations} if invocations else None,
                 state_version=current_state.version if current_state else None,
                 model=payload.model,
                 token_usage=token_usage_record,

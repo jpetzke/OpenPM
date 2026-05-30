@@ -30,6 +30,7 @@ export function useChatStream(projectId: string) {
     streamClosedRef.current = false;
     fullTextRef.current = "";
     completionRef.current = null;
+    toolCallsRef.current = [];
     setCurrentSessionId(null);
     setActiveToolCalls([]);
     setMutationCards([]);
@@ -39,8 +40,13 @@ export function useChatStream(projectId: string) {
   const queuedText = useRef("");
   const rafRef = useRef<number | null>(null);
   const streamClosedRef = useRef(false);
-  const completionRef = useRef<((assistantMessage: string, success: boolean, errorCode?: string) => void) | null>(null);
+  const completionRef = useRef<((assistantMessage: string, success: boolean, errorCode?: string, invocations?: ActiveToolCall[]) => void) | null>(null);
   const fullTextRef = useRef("");
+  // Mirror of activeToolCalls that survives the message_end clear, so the
+  // completion callback can hand the finished invocations to the optimistic
+  // assistant message — keeping the tool rows on screen with no flicker until
+  // the persisted history (which carries the same invocations) lands.
+  const toolCallsRef = useRef<ActiveToolCall[]>([]);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const flushCompletionIfReady = useCallback(() => {
@@ -58,9 +64,10 @@ export function useChatStream(projectId: string) {
     }));
     const completion = completionRef.current;
     completionRef.current = null;
+    const invocations = toolCallsRef.current;
     // Defer to microtask so the streamingText="" commit lands before the
     // parent invalidates / refetches the history query.
-    if (completion) queueMicrotask(() => completion(fullTextRef.current, true));
+    if (completion) queueMicrotask(() => completion(fullTextRef.current, true, undefined, invocations));
   }, []);
 
   useEffect(() => {
@@ -92,17 +99,18 @@ export function useChatStream(projectId: string) {
     streamClosedRef.current = false;
     const completion = completionRef.current;
     completionRef.current = null;
+    const invocations = toolCallsRef.current;
     setActiveToolCalls([]);
     setMutationCards([]);
     setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
     // Return whatever was streamed so far so the caller can still show it.
-    completion?.(fullTextRef.current, fullTextRef.current.length > 0);
+    completion?.(fullTextRef.current, fullTextRef.current.length > 0, undefined, invocations);
   }, []);
 
   const sendMessage = useCallback(
     async (
       content: string,
-      onComplete: (assistantMessage: string, success: boolean, errorCode?: string) => void,
+      onComplete: (assistantMessage: string, success: boolean, errorCode?: string, invocations?: ActiveToolCall[]) => void,
       selectedModel?: string,
     ) => {
       // Clean up any previous stream.
@@ -114,6 +122,8 @@ export function useChatStream(projectId: string) {
       streamClosedRef.current = false;
       fullTextRef.current = "";
       completionRef.current = onComplete;
+      toolCallsRef.current = [];
+      setActiveToolCalls([]);
       setState({ streaming: false, sending: true, streamingText: "", activeTools: [], lastError: null });
 
       try {
@@ -193,19 +203,26 @@ export function useChatStream(projectId: string) {
                 setState((prev) => ({ ...prev, activeTools: data.tools ?? [] }));
               }
               if (data.type === "tool_call_start") {
-                setActiveToolCalls(prev => [...prev, {
+                const call: ActiveToolCall = {
                   call_id: data.call_id as string,
                   tool_name: data.tool_name as string,
                   args: (data.args as Record<string, unknown>) ?? {},
                   status: "running",
-                }]);
+                  text_offset:
+                    typeof data.text_offset === "number"
+                      ? data.text_offset
+                      : fullTextRef.current.length,
+                };
+                toolCallsRef.current = [...toolCallsRef.current, call];
+                setActiveToolCalls(toolCallsRef.current);
               }
               if (data.type === "tool_call_end") {
-                setActiveToolCalls(prev => prev.map(tc =>
+                toolCallsRef.current = toolCallsRef.current.map(tc =>
                   tc.call_id === data.call_id
-                    ? { ...tc, result_summary: data.result_summary as string | undefined, status: "done" }
+                    ? { ...tc, result_summary: data.result_summary as string | undefined, status: "done" as const }
                     : tc
-                ));
+                );
+                setActiveToolCalls(toolCallsRef.current);
               }
               if (data.type === "mutation_card") {
                 setMutationCards(prev => [...prev, {
@@ -224,7 +241,10 @@ export function useChatStream(projectId: string) {
               if (data.type === "message_end") {
                 streamClosedRef.current = true;
                 setState((prev) => ({ ...prev, sending: false, activeTools: [] }));
-                setActiveToolCalls([]);
+                // Keep activeToolCalls until the next send/abort: the streaming
+                // bubble unmounts when `streaming` flips false anyway, and the
+                // optimistic assistant carries these same invocations forward —
+                // so the inline tool rows never flicker out.
                 flushCompletionIfReady();
               }
               if (data.type === "error") {
@@ -277,6 +297,7 @@ export function useChatStream(projectId: string) {
 
   const setSessionId = useCallback((id: string | null) => {
     setCurrentSessionId(id);
+    toolCallsRef.current = [];
     setActiveToolCalls([]);
     setMutationCards([]);
     setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
