@@ -88,3 +88,23 @@ test("F6 command palette", async ({ page }) => {
   await page.waitForTimeout(500);
   await page.screenshot({ path: "test-results/f6-command-palette-filtered.png", fullPage: false });
 });
+
+test("chat markdown renders (GFM table via /help)", async ({ page }) => {
+  const projectId = await getOrCreateProjectId();
+  await page.goto(`/projects/${projectId}`);
+  await page.waitForLoadState("load");
+  await page.waitForTimeout(800);
+
+  const input = page.locator("textarea").first();
+  await input.click();
+  await input.fill("/help");
+  await page.keyboard.press("Enter");
+  // The slash popover may capture the first Enter to select the command.
+  await page.waitForTimeout(400);
+  await page.keyboard.press("Enter");
+
+  // A real <table> must now exist in the rendered assistant message.
+  await expect(page.locator("table thead th").first()).toBeVisible({ timeout: 8000 });
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: "test-results/chat-markdown.png", fullPage: false });
+});
