@@ -465,7 +465,7 @@ async def _parse_with_ocr(file_bytes: bytes, mime_type: str) -> tuple[str, dict,
     """Parse an image via kreuzberg with force_ocr=True."""
     try:
         from kreuzberg import ChunkingConfig, ExtractionConfig, OcrConfig, extract_bytes
-        from app.services.extraction import _simple_chunk  # noqa: PLC2701
+        from app.services.extraction import _chunk_to_text, _simple_chunk  # noqa: PLC2701
         config = ExtractionConfig(
             output_format="markdown",
             force_ocr=True,
@@ -475,7 +475,7 @@ async def _parse_with_ocr(file_bytes: bytes, mime_type: str) -> tuple[str, dict,
         result = await extract_bytes(file_bytes, mime_type=mime_type, config=config)
         raw_content = result.content or ""
         metadata = result.metadata or {}
-        chunks = [c.text if hasattr(c, "text") else str(c) for c in (result.chunks or [])]
+        chunks = [_chunk_to_text(c) for c in (result.chunks or [])]
         if not chunks and raw_content:
             chunks = _simple_chunk(raw_content, 512, 100)
         return raw_content, metadata, chunks

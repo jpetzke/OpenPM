@@ -81,11 +81,36 @@ def _role_for_purpose(purpose: str) -> ModelRole:
 
 async def _client_and_candidates(
     purpose: str, model_override: str | None
-) -> tuple[AsyncOpenAI, list[str]]:
+) -> tuple[AsyncOpenAI, list[str], str]:
     provider = await require_active_provider("llm")
     client = build_llm_client(provider)
     models = candidate_models(provider, _role_for_purpose(purpose), model_override)
-    return client, models
+    return client, models, provider.provider_type
+
+
+def _apply_prompt_cache(messages: list[dict], provider_type: str) -> list[dict]:
+    """Mark the leading system block(s) with an explicit cache breakpoint for
+    providers that need one (OpenRouter/Anthropic-family). Azure/OpenAI/Gemini
+    do prefix caching implicitly and reject the non-standard ``cache_control``
+    field, so they are left untouched. We mark up to two system messages (the
+    stable instruction prefix + the volatile project context); OpenRouter allows
+    four breakpoints. The input list is never mutated."""
+    if provider_type != "openrouter":
+        return messages
+    out: list[dict] = []
+    marked = 0
+    for m in messages:
+        if m.get("role") == "system" and isinstance(m.get("content"), str) and marked < 2:
+            out.append({
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": m["content"], "cache_control": {"type": "ephemeral"}}
+                ],
+            })
+            marked += 1
+        else:
+            out.append(m)
+    return out
 
 
 async def complete(
@@ -100,7 +125,8 @@ async def complete(
     response.choices[0].message.content).  The usage_record contains
     token counts + estimated cost or None if the provider didn't report usage.
     """
-    client, candidates = await _client_and_candidates(purpose, model_override)
+    client, candidates, provider_type = await _client_and_candidates(purpose, model_override)
+    messages = _apply_prompt_cache(messages, provider_type)
     last_exc: Exception | None = None
 
     for index, model in enumerate(candidates):
@@ -168,7 +194,8 @@ async def stream(
     purpose: str = "general",
     model_override: str | None = None,
 ) -> AsyncGenerator[str, None]:
-    client, candidates = await _client_and_candidates(purpose, model_override)
+    client, candidates, provider_type = await _client_and_candidates(purpose, model_override)
+    messages = _apply_prompt_cache(messages, provider_type)
     last_exc: Exception | None = None
 
     for index, model in enumerate(candidates):
@@ -247,13 +274,18 @@ async def agent_round(
 
     Calls structure: [{"id": str, "name": str, "arguments": str}, ...]
     """
-    client, candidates = await _client_and_candidates(purpose, model_override)
+    client, candidates, provider_type = await _client_and_candidates(purpose, model_override)
+    messages = _apply_prompt_cache(messages, provider_type)
     last_exc: Exception | None = None
 
     for index, model in enumerate(candidates):
         kwargs: dict = {"model": model, "messages": messages}
         if tools:
             kwargs["tools"] = tools
+        # Streaming responses omit token usage unless explicitly requested — without
+        # this the final completion reports 0 prompt/0 completion tokens (and $0 cost)
+        # even though the model clearly produced output.
+        kwargs["stream_options"] = {"include_usage": True}
 
         accumulated_tool_calls: dict[int, dict] = {}
         has_tool_calls = False

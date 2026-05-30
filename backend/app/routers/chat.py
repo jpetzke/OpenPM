@@ -177,69 +177,160 @@ _TOOLS_WITHOUT_SEARCH = [t for t in _ALL_TOOLS if t["function"]["name"] != "sear
 
 # ---------------------------------------------------------------------------
 # System prompt builder
+#
+# Split into a STABLE prefix (identical across every project/turn → lands in
+# the provider's prompt cache) and a COMPACT volatile context block (changes
+# only when the project state changes). Azure/OpenAI/Gemini cache the longest
+# identical prefix automatically (≥1024 tokens, ~50% cheaper, lower latency),
+# and OpenRouter/Anthropic get an explicit cache_control breakpoint in llm.py.
+# Keeping the rich instructions in the cached prefix is therefore ~free after
+# the first call, while the per-request payload stays tiny.
 # ---------------------------------------------------------------------------
 
-def _build_system_prompt(project: Project, current_state: ProjectState | None, documents: list[Document]) -> str:
-    state_json = json.dumps(current_state.state, ensure_ascii=False, indent=2) if current_state else "null"
+# Rich, project-agnostic instructions. Never interpolate volatile data here —
+# every byte must be identical between requests or the cache prefix breaks.
+_SYSTEM_PROMPT_STABLE = f"""<identity>
+Du bist der Projektassistent in OpenPM. Du kennst den kompletten Projektstand und hilfst dem Team, ihn zu verstehen, Dokumente zu durchsuchen, Fragen präzise zu beantworten und Aufgaben zu pflegen. Antworte sofort und konkret — keine Rückfrage, wenn die Antwort im Kontext steht.
+</identity>
+
+<context_rules>
+Der aktuelle Projektstand (Tasks, Kontakte, Deadlines, Entscheidungen, Blocker, Abschnitte) und die Dokumentliste stehen dir UNTEN im <project_context> bereits vollständig vor. Das ist deine primäre Quelle.
+- Frag NICHT nach Infos, die schon im Kontext stehen.
+- Ruf get_current_state NUR auf, nachdem du selbst gerade etwas geändert hast und den frischen Stand brauchst — sonst nie (der Stand ist schon da).
+- Erfinde nichts. Wenn etwas weder im Kontext noch in Dokumenten steht, sag das klar.
+</context_rules>
+
+<grounding>
+Der <project_context> enthält nur KURZE Titel/Zusammenfassungen der Abschnitte — NICHT den vollständigen Dokumenttext.
+- Will der User den genauen Wortlaut, Details, konkrete Werte/Fristen/Paragraphen oder "was genau / wörtlich steht in …" und das steht nicht ausgeschrieben im Kontext → ZWINGEND zuerst search_documents aufrufen, dann auf Basis der Treffer antworten.
+- Zitiere NIE wörtlich (Anführungszeichen, Blockzitat) aus einem Dokument, ohne es vorher per search_documents/get_document_content geladen zu haben. Ein Abschnittstitel im Projektstand ist KEIN Beleg für den Wortlaut.
+- Reicht ein Snippet nicht, hol mit get_document_content den vollen Text.
+</grounding>
+
+<tool_routing>
+Wähle das Tool nach Absicht — meist brauchst du GAR KEIN Tool:
+| Frage des Users | Aktion |
+| Status, welche Tasks/Deadlines/Kontakte/Blocker, Zusammenfassung | direkt aus <project_context> antworten, kein Tool |
+| Detail/Wortlaut aus einem Dokument, "wo steht...", "was genau sagt..." | search_documents(query) → bei Bedarf get_document_content(id) |
+| "Welche Dokumente gibt es?" / Liste mit Status | list_documents (oder direkt aus <project_context>) |
+| "Was hat sich geändert / wann / durch wen" | get_state_history |
+| Task als erledigt/blockiert/offen markieren | update_task_status(task_id, status) mit ID aus <project_context> |
+Mehrere Tools nacheinander erlaubt (max. {MAX_AGENT_ROUNDS} Runden). Niemals ein Tool aufrufen, dessen Antwort schon im Kontext steht.
+</tool_routing>
+
+<examples>
+User: "Welche offenen Aufgaben gibt es?" → Antwort direkt aus <project_context>, KEIN Tool.
+User: "Was genau steht im Praktikumsvertrag zur Dauer?" → search_documents("Dauer Praktikum Vertrag"), dann antworten und Dateiname nennen.
+User: "Markiere die Laufzettel-Aufgabe als erledigt." → update_task_status(task_id=<ID der Task aus dem Kontext>, status="done"), dann kurz bestätigen.
+</examples>
+
+<response_style>
+- Sprache des Users spiegeln (Deutsch oder Englisch).
+- Präzise, keine Füllphrasen, kein Aufwärmen, kein Wiederholen der Frage.
+- Markdown für Struktur (Listen, **fett** für Namen/Daten/Fristen).
+- Konkrete Belege nennen: Dateiname, Frist, Name. Bei Suche immer das Quelldokument zitieren.
+- Bei echter Mehrdeutigkeit genau eine gezielte Rückfrage — sonst antworten.
+</response_style>"""
+
+
+def _truncate(text: str | None, limit: int) -> str:
+    if not text:
+        return ""
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _render_state_digest(state: dict | None) -> str:
+    """Compact, clean rendering of project state — no JSON noise (drops
+    confidence/source_document_ids/last_modified_source), task IDs kept because
+    update_task_status needs them. ~10x smaller than the raw JSON dump."""
+    if not state:
+        return "Noch kein Projektstand erfasst."
+
+    core = state.get("core", {}) or {}
+    lines: list[str] = []
+
+    blockers = core.get("blockers", []) or []
+    if blockers:
+        lines.append(f"Blocker ({len(blockers)}):")
+        for b in blockers:
+            lines.append(f"  - {b.get('title') or b.get('name') or '?'}{_suffix(b)}")
+    else:
+        lines.append("Blocker: keine")
+
+    tasks = core.get("open_tasks", []) or []
+    lines.append(f"Offene Tasks ({len(tasks)}):" if tasks else "Offene Tasks: keine")
+    for t in tasks:
+        status = t.get("status") or "open"
+        lines.append(f"  - [{t.get('id')}] ({status}) {t.get('title') or '?'}{_suffix(t)}")
+
+    deadlines = core.get("deadlines", []) or []
+    if deadlines:
+        lines.append(f"Deadlines ({len(deadlines)}):")
+        for d in deadlines:
+            when = d.get("date") or d.get("due_date") or ""
+            label = d.get("name") or d.get("title") or "?"
+            when_str = f" — {when}" if when else ""
+            lines.append(f"  - {label}{when_str}{_suffix(d)}")
+
+    decisions = core.get("decisions", []) or []
+    if decisions:
+        lines.append(f"Entscheidungen ({len(decisions)}):")
+        for d in decisions:
+            lines.append(f"  - {d.get('title') or d.get('name') or '?'}{_suffix(d)}")
+
+    contacts = core.get("contacts", []) or []
+    if contacts:
+        lines.append(f"Kontakte ({len(contacts)}):")
+        for c in contacts:
+            role = f" ({c.get('role')})" if c.get("role") else ""
+            email = f" — {c.get('email')}" if c.get("email") else ""
+            lines.append(f"  - {c.get('name') or '?'}{role}{email}")
+
+    for section in state.get("dynamic_sections", []) or []:
+        items = section.get("items", []) or []
+        titles = ", ".join(_truncate(i.get("title"), 60) for i in items if i.get("title"))
+        lines.append(f"{section.get('title') or section.get('kind') or 'Abschnitt'}: {titles}")
+
+    custom = state.get("custom") or {}
+    if custom:
+        lines.append(f"Custom-Felder: {', '.join(sorted(custom.keys()))}")
+
+    return "\n".join(lines)
+
+
+def _suffix(item: dict) -> str:
+    s = _truncate(item.get("summary") or item.get("description"), 120)
+    return f" — {s}" if s else ""
+
+
+def _build_context_block(
+    project: Project, current_state: ProjectState | None, documents: list[Document]
+) -> str:
+    """Volatile per-project context. Kept compact and placed AFTER the stable
+    prefix so the cache prefix stays intact across projects and turns."""
     state_version = current_state.version if current_state else "–"
+    digest = _render_state_digest(current_state.state if current_state else None)
 
     if documents:
-        docs_lines = []
-        for d in documents:
-            summary_snippet = ""
-            if d.summary:
-                summary_snippet = f" | {d.summary[:150]}{'…' if len(d.summary) > 150 else ''}"
-            docs_lines.append(
-                f"- {d.id} | {d.original_filename} | {d.processing_status}{summary_snippet}"
-            )
+        docs_lines = [
+            f"- {d.id} | {d.original_filename} | {d.processing_status}"
+            + (f" | {_truncate(d.summary, 140)}" if d.summary else "")
+            for d in documents
+        ]
         docs_section = "\n".join(docs_lines)
     else:
         docs_section = "Noch keine Dokumente hochgeladen."
 
-    briefing = project.compiled_briefing or "Noch kein Briefing generiert."
+    return f"""<project_context>
+Projekt: {project.name} | Kunde: {project.client_name or "–"} | Status: {project.status} | Stand v{state_version}
 
-    return f"""<identity>
-Du bist ein intelligenter Projektassistent in OpenPM. Du hast vollständigen Zugriff auf alle Projektdaten und hilfst dem Team dabei, den Projektstatus zu verstehen, Dokumente zu analysieren, Aufgaben zu verwalten und Fragen präzise zu beantworten.
-</identity>
+[Projektstand]
+{digest}
 
-<project>
-Name: {project.name}
-Kunde: {project.client_name or "–"}
-Status: {project.status}
-State-Version: {state_version}
-</project>
-
-<current_state>
-{state_json}
-</current_state>
-
-<documents>
-Format: <id> | <dateiname> | <status> | <zusammenfassung>
+[Dokumente]  Format: <id> | <dateiname> | <status> | <zusammenfassung>
 {docs_section}
-</documents>
-
-<briefing>
-{briefing}
-</briefing>
-
-<tools_guidance>
-Nutze Tools proaktiv und intelligent:
-- Projektstatus, Aufgaben, Kontakte, Deadlines, Blocker → bereits in <current_state> verfügbar, KEIN Tool nötig
-- Fragen zu Dokumentinhalten, Suche nach konkreten Textstellen → search_documents, dann bei Bedarf get_document_content
-- "Welche Dokumente gibt es?" → list_documents
-- Letzte Änderungen, was hat sich wann geändert? → get_state_history
-- Aufgabe als erledigt / blockiert / offen markieren → update_task_status
-- Du kannst mehrere Tools sequenziell aufrufen (max. {MAX_AGENT_ROUNDS} Runden)
-- Rufe nie unnötige Tools auf, wenn die Antwort bereits aus dem Kontext hervorgeht
-</tools_guidance>
-
-<response_style>
-- Antworte in der gleichen Sprache wie der User (Deutsch oder Englisch)
-- Präzise und hilfreich — keine Füllphrasen, kein Aufwärmen
-- Nutze Markdown für Struktur (Listen, **Fett** für Namen/Daten), wenn es der Übersicht dient
-- Referenziere konkrete Dokumente (Dateiname), Task-IDs oder Daten wenn möglich
-- Bei Unklarheiten: eine gezielte Rückfrage stellen
-</response_style>"""
+</project_context>"""
 
 
 # ---------------------------------------------------------------------------
@@ -723,8 +814,12 @@ async def chat(
     active_tools = _ALL_TOOLS if embeddings_enabled else _TOOLS_WITHOUT_SEARCH
 
     # Build message list for the LLM.
-    system_prompt = _build_system_prompt(project, current_state, documents)
-    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    # Two system messages: a stable, project-agnostic prefix (cache hit) followed
+    # by a compact volatile context block. See _SYSTEM_PROMPT_STABLE for why.
+    messages: list[dict] = [
+        {"role": "system", "content": _SYSTEM_PROMPT_STABLE},
+        {"role": "system", "content": _build_context_block(project, current_state, documents)},
+    ]
     for msg in history:
         if msg.role in ("user", "assistant") and msg.content:
             messages.append({"role": msg.role, "content": msg.content})

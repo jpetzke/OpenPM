@@ -261,6 +261,22 @@ async def extract_state_delta(
     return parsed, usage_breakdown
 
 
+def _chunk_to_text(chunk: object) -> str:
+    """Extract the text of a kreuzberg chunk.
+
+    kreuzberg's ``Chunk`` exposes its text on ``.content`` (NOT ``.text``).
+    The previous ``c.text if hasattr(c, "text") else str(c)`` always fell
+    through to ``str(c)`` and stored/embedded the object repr
+    (``Chunk(content_len=…, has_embedding=…)``) instead of real text — which
+    silently broke semantic search. Try the known attributes, then fall back.
+    """
+    for attr in ("content", "text"):
+        value = getattr(chunk, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value
+    return str(chunk)
+
+
 async def parse_document(file_bytes: bytes, mime_type: str) -> tuple[str, dict, list[str]]:
     """Returns (raw_content, metadata, chunks). Uses kreuzberg."""
     try:
@@ -281,7 +297,7 @@ async def parse_document(file_bytes: bytes, mime_type: str) -> tuple[str, dict, 
         result = await extract_bytes(file_bytes, mime_type=mime_type, config=config)
         raw_content = result.content or ""
         metadata = result.metadata or {}
-        chunks = [c.text if hasattr(c, "text") else str(c) for c in (result.chunks or [])]
+        chunks = [_chunk_to_text(c) for c in (result.chunks or [])]
         if not chunks and raw_content:
             chunks = _simple_chunk(raw_content, 512, 100)
         return raw_content, metadata, chunks
