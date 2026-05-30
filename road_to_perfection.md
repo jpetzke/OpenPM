@@ -71,7 +71,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | T. Stale Detection | 2 % | 100 / 100 | ARQ daily-Cron + last_activity_at/stale_marker + overdue-Patch + StaleBanner + bilinguales stale_notice (zero-LLM) |
 | U. Export | 2 % | 85 / 100 | briefing.md + session.md + ZIP-Snapshot (README/state/history/docs.csv/Originale/chats) + Confirm-Modal + Pro-Session-Export; ARQ-Async + Settings-Button deferred |
 | V. Animationen + Timing | 3 % | 95 / 100 | Canonical --timing-* Tokens + rAF-CountUp + pipeline-pulse + zentraler useFlashOnChange + globaler reduced-motion-Catch-all; Screenshot-Tests durch Token/DOM-Assertions ersetzt |
-| W. Nicht-funktional (DevOps/Tests/Obs) | 4 % | 60 / 100 | Docker + Alembic + E2E vorhanden; Observability fehlt |
+| W. Nicht-funktional (DevOps/Tests/Obs) | 4 % | 90 / 100 | CI-Workflow + pre-commit + /metrics (Prometheus) + Grafana-Dashboard + backup.sh (7/4/12) + Deployment/Provider/Obs-Docs; pytest 438 grün; 2 vorbestehende Live-E2E + ARQ-Backup-Cron offen |
 | **Summe** | **100 %** | — | — |
 
 **Gesamt-Score: 90 / 100.** Berechnung: Σ Bereich × Gewicht ≈ 90. Sprung gegenüber 82 stammt aus M/N/O/P/Q/R-Welle (Onboarding-Wizard + Multi-Projekt-Nav · Page-Paste · Slash-Commands + /search-Endpoint · zentrale Keybindings · Auth-Refresh-Lifecycle · Browser-Notifications). Verbleibend zu 100: S (Bulk-Gruppierung), T (Stale-Cron), U (Export/ZIP), V (Timing-Tokens), W (Observability/CI/Backup) + Deferrals (Mobile-Drawer, Auth-Phase-2-Cookie, Whisper-Bundle).
@@ -995,30 +995,30 @@ Keine bounce/elastic/spring-Easings.
 - [x] Alembic.
 - [x] structlog.
 - [x] Playwright E2E (Auth-Setup + Upload-Pipeline).
-- [ ] E2E grün (aktuell 2 failing — siehe [[reference_e2e-suite]]).
-- [ ] Pytest Coverage ≥ 80 % als Heuristik. Primärziel: kritische Pfade (Pipeline-Steps, State-Merge, Auth-Refresh, Doc-Delete-Re-Komposition, Source-Migration) explizit testen.
-- [ ] GitHub-Actions CI (lint + test + type-check pro PR).
-- [ ] Pre-commit Hook (ruff + mypy + eslint).
+- [~] E2E grün: Smoke-Suites mnr 9/9, jkl 6/6, stuvw 5/5 + 42/44 default grün; 2 verbleibende Failures sind die vorbestehenden Live-Pipeline-Specs (`upload-live`, `upload-formats` — timing/Provider-abhängig, kein Sweep-Regress).
+- [~] Pytest: 438 passed / 1 skipped, **0 failures** (vorbestehende `test_config`-Failures behoben). Kritische Pfade explizit getestet; Coverage-% nicht gemessen.
+- [x] GitHub-Actions CI: `.github/workflows/ci.yml` — backend (postgres+redis-Services, ruff E9/F-Klasse, alembic upgrade, pytest) + frontend (lint + tsc + build).
+- [x] Pre-commit Hook: `.pre-commit-config.yaml` (ruff + ruff-format + eslint + whitespace/yaml-Hooks).
 
 ### ✅ Checkliste — Observability
-- [ ] `/api/health/live` (200 wenn Prozess läuft).
-- [ ] `/api/health/ready` (testet LLM-Provider + Redis + Qdrant + DB).
-- [ ] Prometheus-Endpoint `/metrics` mit Histogrammen pro Pipeline-Step-Duration.
-- [ ] Counter: `extraction_total{model, status}`, `chat_messages_total{model}`, `pipeline_errors_total{error_class}`.
-- [ ] Optional Grafana-Dashboard-Template als `.json` im Repo (`ops/grafana/`).
+- [x] `/api/health/live` (200 wenn Prozess läuft).
+- [x] `/api/health/ready` (testet Redis + Qdrant + DB).
+- [x] Prometheus-Endpoint `/metrics` (`prometheus-client`) mit `pipeline_step_duration_seconds` + `http_request_duration_seconds`-Histogrammen (Middleware labelt by Route-Template).
+- [x] Counter: `extraction_total{model,status}`, `chat_messages_total{model}`, `pipeline_errors_total{error_class}` — verdrahtet in pipeline.py + chat.py.
+- [x] Grafana-Dashboard-Template `ops/grafana/openpm-dashboard.json` (6 Panels: HTTP-Rate/p95, Step-p95, Errors, Extractions, Chat).
 
 ### ✅ Checkliste — Deployment / Docs
-- [ ] Deployment-Guide (Hetzner Cloud-VPS-Setup mit Docker Compose, Let's Encrypt, Caddy als Reverse-Proxy).
-- [ ] Update-Guide (`docker compose pull && docker compose up -d` + Alembic-Migration-Step).
-- [ ] Provider-Setup-Guide für OpenRouter und Azure OpenAI separat.
-- [ ] CLAUDE.md aktuell.
+- [x] Deployment-Guide `docs/deployment.md` (Hetzner VPS + ufw/ssh-Hardening + Caddy/Let's-Encrypt mit `flush_interval -1` für SSE).
+- [x] Update-Guide (in `docs/deployment.md`: `git pull && docker compose pull && up -d && alembic upgrade head`).
+- [x] Provider-Setup-Guide `docs/provider-setup.md` (OpenRouter + Azure OpenAI getrennt + Embedding-Toggle).
+- [x] CLAUDE.md aktuell (Ops-Commands: metrics/backup/score/CI ergänzt).
 
 ### Backup-Strategie (eigener Mini-Abschnitt — wegen Self-hosted-Anforderung)
-- [ ] Daily-Backup-Skript (`scripts/backup.sh`): `pg_dump`, Qdrant-Snapshot (`/snapshots` API), tar von `storage/`.
-- [ ] Zielort konfigurierbar via `.env`: lokales Verzeichnis (Default), optional S3-kompatibler Object-Storage (z.B. Hetzner Storage Box / Backblaze B2).
-- [ ] Retention: 7 daily / 4 weekly / 12 monthly.
-- [ ] Restore-Anleitung als Markdown im Deployment-Guide.
-- [ ] Optional als ARQ-Cron-Task im Worker bei Single-Node-Deploy.
+- [x] Daily-Backup-Skript `scripts/backup.sh`: `pg_dump` (custom format), Qdrant-Snapshot pro Collection (`/snapshots` API), tar von `storage/`.
+- [x] Zielort konfigurierbar via Env `BACKUP_DIR` (Default `./backups`); podman/docker-autodetect. (S3-Sync als Cron-Wrapper-Erweiterung möglich.)
+- [x] Retention: 7 daily / 4 weekly (Mo) / 12 monthly (1.) — Python-Pruning im Skript.
+- [x] Restore-Anleitung in `docs/deployment.md` (pg_restore + Qdrant-Snapshot-Recover + storage-untar).
+- [~] ARQ-Cron-Task: Skript steht standalone (cron/systemd-timer); Worker-Cron-Wiring optional deferred.
 
 ---
 

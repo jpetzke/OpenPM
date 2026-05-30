@@ -756,6 +756,13 @@ async def _process(
             _extract_with_llm_retry(),
         )
         doc.summary = summary_text
+        try:
+            from app.services import metrics
+
+            _ex_model = (extract_usage_breakdown or [{}])[0].get("model") if extract_usage_breakdown else None
+            metrics.record_extraction(_ex_model, "ok")
+        except Exception:  # noqa: BLE001
+            pass
 
         # Build extraction_token_usage breakdown for the document
         all_usage: list[dict] = []
@@ -1078,6 +1085,12 @@ async def _process(
         log.error("pipeline_failed", document_id=str(document_id), error=err_message)
         classified = _LLM_EXC_TO_CLASS.get(type(exc))
         error_class = classified if classified else type(exc).__name__[:64]
+        try:
+            from app.services import metrics
+
+            metrics.record_pipeline_error(error_class)
+        except Exception:  # noqa: BLE001
+            pass
         try:
             doc.processing_status = "failed"
             doc.processing_error = err_message

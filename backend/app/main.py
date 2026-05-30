@@ -95,6 +95,35 @@ async def _no_active_provider_handler(_: Request, exc: NoActiveProviderError) ->
     )
 
 
+@app.middleware("http")
+async def _metrics_middleware(request: Request, call_next):
+    """Record HTTP request latency. Labels by the matched route template (not
+    raw path) to keep metric cardinality bounded; skips /metrics itself."""
+    import time as _time
+
+    from app.services import metrics
+
+    start = _time.perf_counter()
+    response = await call_next(request)
+    route = request.scope.get("route")
+    template = getattr(route, "path", request.url.path)
+    if template != "/metrics":
+        metrics.http_request_duration_seconds.labels(
+            method=request.method,
+            route=template,
+            status=f"{response.status_code // 100}xx",
+        ).observe(_time.perf_counter() - start)
+    return response
+
+
+@app.get("/metrics", include_in_schema=False)
+async def metrics_endpoint():
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+    from fastapi.responses import Response
+
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 app.include_router(app_settings.router)
 app.include_router(auth.router)
 app.include_router(projects.router)

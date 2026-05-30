@@ -30,6 +30,25 @@ alembic upgrade head             # apply all migrations
 alembic revision --autogenerate -m "description"  # create migration
 ```
 
+### Ops / Observability (section W)
+
+```bash
+# Prometheus metrics: http_request_duration_seconds, pipeline_step_duration_seconds,
+# extraction_total{model,status}, chat_messages_total{model}, pipeline_errors_total{error_class}
+curl http://localhost:8000/metrics
+
+# Backup (pg_dump + Qdrant snapshots + storage tar; retention 7 daily/4 weekly/12 monthly)
+BACKUP_DIR=./backups scripts/backup.sh
+
+# Roadmap score (parses checklists + scorecard weights, warns on >5pt drift; exit 1 on drift)
+python scripts/score.py road_to_perfection.md
+```
+
+CI: `.github/workflows/ci.yml` (backend ruff+alembic+pytest with postgres/redis
+services; frontend lint+tsc+build). Local hooks: `.pre-commit-config.yaml`
+(`pre-commit install`). Deployment/provider/observability guides in `docs/`;
+Grafana dashboard in `ops/grafana/`.
+
 ### Frontend
 
 ```bash

@@ -824,6 +824,12 @@ async def chat(
                     _session.last_message_at = datetime.now(timezone.utc)
                     _session.message_count = (_session.message_count or 0) + 1
                 await db.commit()
+                try:
+                    from app.services import metrics
+
+                    metrics.record_chat_message(payload.model)
+                except Exception:  # noqa: BLE001
+                    pass
             except Exception as save_exc:
                 log.error("chat_save_failed", project_id=str(project_id), error=str(save_exc))
 

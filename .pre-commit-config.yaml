@@ -1,0 +1,34 @@
+# Pre-commit hooks for OpenPM (section W).
+#   install:  pip install pre-commit && pre-commit install
+#   run all:  pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      # Lint Python (error-class rules only — keeps existing style noise out).
+      - id: ruff
+        files: ^backend/
+        args: [--select, "E9,F63,F7,F82"]
+      # Format check (does not rewrite in the hook; run `ruff format` to fix).
+      - id: ruff-format
+        files: ^backend/
+        args: [--check]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=2048]
+
+  - repo: local
+    hooks:
+      - id: eslint
+        name: eslint (frontend)
+        entry: bash -c 'cd frontend && npx eslint'
+        language: system
+        files: ^frontend/src/.*\.(ts|tsx)$
+        pass_filenames: false
