@@ -922,6 +922,44 @@ async def get_session_messages(
     return result.scalars().all()
 
 
+@router.get("/sessions/{session_id}/export.md")
+async def export_session_md(
+    project_id: uuid.UUID,
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Section U: export a single chat session as markdown."""
+    from fastapi.responses import PlainTextResponse
+
+    from app.models.state import ChatSession
+    from app.services import export_service
+
+    session = (
+        await db.execute(
+            select(ChatSession).where(
+                ChatSession.id == session_id, ChatSession.project_id == project_id
+            )
+        )
+    ).scalar_one_or_none()
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+    msgs = (
+        await db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created_at.asc())
+        )
+    ).scalars().all()
+    md = export_service.session_markdown(session, list(msgs))
+    fname = f"chat-{export_service.slugify(session.title or 'chat')}.md"
+    return PlainTextResponse(
+        md,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
 @router.patch("/sessions/{session_id}", response_model=ChatSessionResponse)
 async def update_chat_session(
     project_id: uuid.UUID,

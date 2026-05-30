@@ -8,6 +8,7 @@ import { api } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
 import { nextDeadline, formatDeadline } from "@/lib/deadlines";
 import { StateDetailModal } from "./StateDetailModal";
+import { ExportButtons } from "./ExportButtons";
 import { useUsage } from "@/hooks/useUsage";
 import type { ProjectState } from "@/types/state";
 
@@ -189,6 +190,7 @@ export function StatusPanel({ projectId }: Props) {
           )}
         </div>
       )}
+      <ExportButtons projectId={projectId} />
     </section>
   );
 }

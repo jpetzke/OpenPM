@@ -69,7 +69,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | R. Notifications & Recovery | 2 % | 100 / 100 | Browser-Notification Opt-in + Complete/Failed-Hook (tab-hidden) + Click-to-Doc + per-Projekt-Tag + requireInteraction live |
 | S. Bulk-Upload | 2 % | 95 / 100 | change_session_id persistiert (0019) + BulkUploadGroup (collapse + Live-Counts + Close-Summary); StatusPanel-Count-Up der Gruppe partial |
 | T. Stale Detection | 2 % | 100 / 100 | ARQ daily-Cron + last_activity_at/stale_marker + overdue-Patch + StaleBanner + bilinguales stale_notice (zero-LLM) |
-| U. Export | 2 % | 0 / 100 | Komplett fehlend |
+| U. Export | 2 % | 85 / 100 | briefing.md + session.md + ZIP-Snapshot (README/state/history/docs.csv/Originale/chats) + Confirm-Modal + Pro-Session-Export; ARQ-Async + Settings-Button deferred |
 | V. Animationen + Timing | 3 % | 60 / 100 | Count-Up + Pulse-Soft + Flash + Pulse-Phase live |
 | W. Nicht-funktional (DevOps/Tests/Obs) | 4 % | 60 / 100 | Docker + Alembic + E2E vorhanden; Observability fehlt |
 | **Summe** | **100 %** | — | — |
@@ -925,13 +925,13 @@ project-{slug}-{YYYY-MM-DD}.zip
 - **Komplett fehlend.**
 
 ### ✅ Checkliste
-- [ ] `GET /api/projects/{id}/export/briefing.md` (Content-Type text/markdown).
-- [ ] `GET /api/projects/{id}/chat/sessions/{sid}/export.md`.
-- [ ] `GET /api/projects/{id}/export.zip` (streamt zip via `aiozipstream` o.ä.).
-- [ ] ZIP-Generation läuft als ARQ-Job (bei großen Projekten > 100 MB), Status-Polling via `GET /api/projects/{id}/export.zip/status`.
-- [ ] Frontend-Buttons in Settings-Page + Status-Block-Footer.
-- [ ] Slash-Command `/export` triggert briefing.md Download direkt.
-- [ ] „Voll-Export"-Button öffnet Confirm-Modal (Größenwarnung) und triggert ARQ-Job.
+- [x] `GET /api/projects/{id}/export/briefing.md` (text/markdown, `Content-Disposition`).
+- [x] `GET /api/projects/{id}/chat/sessions/{sid}/export.md` (chat.py, `export_service.session_markdown`).
+- [x] `GET /api/projects/{id}/export.zip` — `export_service.build_zip` (stdlib zipfile, in-memory): README + briefing.md + state.json + state-history.json + documents.csv + documents/ + chats/.
+- [~] `GET .../export.zip/status` liefert `{ready, mode:"sync", document_count, documents_total_bytes}`; voller ARQ-Async-Job für > 100 MB deferred (Sync-Build deckt Self-hosted-Größen ab, Contract stabil falls Async nachzieht).
+- [~] Frontend-Buttons: Status-Block-Footer (`ExportButtons`: Briefing + ZIP) + Pro-Session-Export-Icon (LandingView hover-Download) live; globale Settings-Page-Button ausgelassen (kein Projekt-Kontext dort).
+- [x] Slash-Command `/export` triggert briefing.md Download direkt (client-side, zero-Token).
+- [x] „Voll-Export"-Button öffnet Confirm-Modal mit Größenwarnung (Doc-Count + ~MB aus status-Endpoint) → ZIP-Download.
 
 ---
 

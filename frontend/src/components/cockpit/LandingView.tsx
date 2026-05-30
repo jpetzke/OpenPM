@@ -2,8 +2,10 @@
 
 import { useQuery } from "@tanstack/react-query";
 import Link from "next/link";
-import { Briefcase, Calendar, BarChart2, ChevronRight } from "lucide-react";
+import { Briefcase, Calendar, BarChart2, ChevronRight, Download } from "lucide-react";
+import { toast } from "sonner";
 import { api } from "@/lib/api";
+import { downloadSessionMd } from "@/lib/export";
 import { formatRelativeTime } from "@/lib/utils";
 import { ChatInput } from "@/components/chat/ChatInput";
 import type { Project } from "@/types/project";
@@ -179,7 +181,24 @@ export function LandingView({
         ) : (
           <ul>
             {sessions.map((session) => (
-              <li key={session.id}>
+              <li key={session.id} className="relative group">
+                <button
+                  type="button"
+                  aria-label="Chat exportieren"
+                  title="Als Markdown exportieren"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      await downloadSessionMd(projectId, session.id);
+                    } catch {
+                      toast.error("Export fehlgeschlagen");
+                    }
+                  }}
+                  className="absolute right-7 top-3.5 z-10 p-1 rounded opacity-0 group-hover:opacity-100 transition-default"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  <Download size={14} />
+                </button>
                 <button
                   type="button"
                   onClick={() => onSessionSelect(session.id)}

@@ -46,3 +46,31 @@ test.describe("Section S — bulk-upload grouping", () => {
     await expect(group.getByTestId("document-row").first()).toBeVisible();
   });
 });
+
+test.describe("Section U — export", () => {
+  test("status-block export buttons present; ZIP opens confirm modal", async ({ page }) => {
+    await injectAuth(page);
+    await page.goto(`/projects/${PROJECT_ID}`);
+    await page.waitForLoadState("load");
+
+    await expect(page.getByTestId("export-briefing")).toBeVisible();
+    const zipBtn = page.getByTestId("export-zip");
+    await expect(zipBtn).toBeVisible();
+
+    await zipBtn.click();
+    await expect(page.getByTestId("export-zip-confirm")).toBeVisible();
+  });
+
+  test("briefing.md endpoint serves markdown", async ({ page }) => {
+    const resp = await page.request.post(`${BACKEND_URL}/api/auth/login`, {
+      data: { email: EMAIL, password: PASSWORD },
+    });
+    const { access_token } = await resp.json();
+    const md = await page.request.get(
+      `${BACKEND_URL}/api/projects/${PROJECT_ID}/export/briefing.md`,
+      { headers: { Authorization: `Bearer ${access_token}` } },
+    );
+    expect(md.ok()).toBeTruthy();
+    expect(md.headers()["content-type"]).toContain("text/markdown");
+  });
+});
