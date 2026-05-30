@@ -10,6 +10,9 @@ interface Props {
   onUndone?: () => void;
 }
 
+// Copilot-respectful mutation receipt: the assistant changed project state,
+// says exactly what it did, and offers a time-boxed undo. A decaying bar makes
+// the remaining window legible at a glance.
 export function MutationCard({ card, projectId, onUndone }: Props) {
   const elapsed = () => Math.floor((Date.now() - card.created_at) / 1000);
   const [secondsLeft, setSecondsLeft] = useState(Math.max(0, card.expires_in - elapsed()));
@@ -43,35 +46,68 @@ export function MutationCard({ card, projectId, onUndone }: Props) {
   if (undone) {
     return (
       <div
-        className="flex items-center gap-2 text-xs px-3 py-2 rounded-md"
-        style={{ background: "var(--bg-elevated)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+        className="flex items-center gap-2 text-xs px-3 py-2 rounded-md animate-fade-in"
+        style={{
+          background: "var(--bg-elevated)",
+          color: "var(--text-muted)",
+          border: "1px solid var(--border)",
+          borderLeft: "2px solid var(--text-muted)",
+        }}
       >
-        <RotateCcw size={11} />
+        <RotateCcw size={12} />
         <span>Rückgängig gemacht</span>
       </div>
     );
   }
 
+  const active = secondsLeft > 0;
+  const pct = active ? (secondsLeft / card.expires_in) * 100 : 0;
+
   return (
     <div
-      className="flex items-center gap-2 text-xs px-3 py-2 rounded-md"
-      style={{ background: "var(--bg-elevated)", border: "1px solid var(--border)" }}
+      className="relative overflow-hidden rounded-md animate-fade-in"
+      style={{
+        background: "var(--bg-elevated)",
+        border: "1px solid var(--border)",
+        borderLeft: "2px solid var(--accent)",
+      }}
     >
-      <CheckCircle2 size={11} style={{ color: "var(--accent)" }} />
-      <span style={{ color: "var(--text-primary)" }}>{card.description}</span>
-      <button
-        onClick={handleUndo}
-        disabled={loading || secondsLeft <= 0}
-        className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-xs disabled:opacity-40"
-        style={{
-          background: "var(--bg-surface)",
-          color: secondsLeft > 0 ? "var(--accent)" : "var(--text-muted)",
-          border: "1px solid var(--border-strong)",
-        }}
-      >
-        <RotateCcw size={10} />
-        {secondsLeft > 0 ? `Rückgängig ${secondsLeft}s` : "Abgelaufen"}
-      </button>
+      <div className="flex items-center gap-2 text-xs px-3 py-2">
+        <CheckCircle2 size={13} className="shrink-0" style={{ color: "var(--accent)" }} />
+        <span className="flex-1 min-w-0" style={{ color: "var(--text-primary)" }}>
+          {card.description}
+        </span>
+        <button
+          onClick={handleUndo}
+          disabled={loading || !active}
+          className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded text-xs shrink-0 transition-default disabled:opacity-40"
+          style={{
+            background: "var(--bg-surface)",
+            color: active ? "var(--accent)" : "var(--text-muted)",
+            border: "1px solid var(--border-strong)",
+          }}
+        >
+          <RotateCcw size={10} />
+          {active ? (
+            <>
+              Rückgängig <span className="tabular-nums">{secondsLeft}s</span>
+            </>
+          ) : (
+            "Abgelaufen"
+          )}
+        </button>
+      </div>
+      {/* decaying time bar */}
+      <div className="h-0.5 w-full" style={{ background: "var(--border)" }}>
+        <div
+          className="h-full"
+          style={{
+            width: `${pct}%`,
+            background: "var(--accent)",
+            transition: "width 1s linear",
+          }}
+        />
+      </div>
     </div>
   );
 }

@@ -201,10 +201,30 @@ export function MessagesView({
           </div>
         )}
         {stream.activeToolCalls.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-1">
-            {stream.activeToolCalls.map((tc) => (
-              <ToolPill key={tc.call_id} toolCall={tc} />
-            ))}
+          <div
+            className="mb-3 rounded-lg border p-2.5 animate-fade-in"
+            style={{
+              background: "var(--bg-surface)",
+              borderColor: "var(--border)",
+            }}
+          >
+            <div className="flex items-center gap-1.5 mb-2">
+              <span
+                className="inline-flex h-1.5 w-1.5 rounded-full animate-pipeline-pulse"
+                style={{ background: "var(--accent)" }}
+              />
+              <span
+                className="text-[10px] font-semibold uppercase tracking-widest"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Assistent arbeitet
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {stream.activeToolCalls.map((tc) => (
+                <ToolPill key={tc.call_id} toolCall={tc} />
+              ))}
+            </div>
           </div>
         )}
         {stream.activeTools.length > 0 && stream.activeToolCalls.length === 0 && (
