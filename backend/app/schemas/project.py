@@ -24,6 +24,15 @@ class ProjectMemberOut(BaseModel):
     email: str
 
 
+class StaleNoticeOut(BaseModel):
+    is_stale: bool = True
+    days_since_activity: int | None = None
+    overdue_deadline_count: int = 0
+    dismissed: bool = False
+    text_de: str = ""
+    text_en: str = ""
+
+
 class ProjectResponse(BaseModel):
     model_config = {"from_attributes": True}
 
@@ -45,6 +54,9 @@ class ProjectResponse(BaseModel):
     open_task_count: int | None = None
     failed_document_count: int = 0
     unread_change_count: int = 0
+    last_activity_at: datetime | None = None
+    stale_marker: bool = False
+    stale_notice: "StaleNoticeOut | None" = None
     members: list[ProjectMemberOut] = []
 
 

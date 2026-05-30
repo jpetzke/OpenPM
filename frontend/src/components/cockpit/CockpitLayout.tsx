@@ -16,6 +16,7 @@ import { StickyChatInput } from "./StickyChatInput";
 import { StatusPanel } from "./StatusPanel";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { BriefingPanel } from "./BriefingPanel";
+import { StaleBanner } from "./StaleBanner";
 import type { ChatMessage, ModelInfo, ChatSession } from "@/types/chat";
 import type { ProjectState, StateChangelog, Task, Deadline, Blocker, Contact } from "@/types/state";
 import type { Project } from "@/types/project";
@@ -746,6 +747,7 @@ export function CockpitLayout({ projectId }: Props) {
           borderColor: "var(--border)",
         }}
       >
+        <StaleBanner projectId={projectId} />
         <StatusPanel projectId={projectId} />
         <DocumentsPanel projectId={projectId} />
         <BriefingPanel projectId={projectId} />

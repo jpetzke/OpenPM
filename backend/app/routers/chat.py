@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 from redis.asyncio import Redis
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent_config import MAX_AGENT_ROUNDS
@@ -704,6 +704,12 @@ async def chat(
     db.add(user_msg)
     session.last_message_at = datetime.now(timezone.utc)
     session.message_count = (session.message_count or 0) + 1
+    # Chatting counts as activity → resets the stale clock + clears marker.
+    await db.execute(
+        update(Project)
+        .where(Project.id == project_id)
+        .values(last_activity_at=func.now(), stale_marker=False)
+    )
     await db.commit()
 
     # Auto-generate title for the first message in a new session.

@@ -33,6 +33,8 @@ def _make_project(*, status: str = "active", archived_at=None) -> SimpleNamespac
         briefing_priority_order=None,
         monthly_budget_usd=None,
         archived_at=archived_at,
+        last_activity_at=now,
+        stale_marker=False,
         created_at=now,
         updated_at=now,
         created_by=uuid.uuid4(),
@@ -73,8 +75,12 @@ class _EnrichlessDB:
     async def execute(self, *_a, **_k):
         self._execute_calls += 1
         if self._execute_calls == 1:
-            return SimpleNamespace(scalar_one_or_none=lambda: self._project, all=lambda: [])
-        return SimpleNamespace(scalar_one_or_none=lambda: None, all=lambda: [])
+            return SimpleNamespace(
+                scalar_one_or_none=lambda: self._project, all=lambda: [], one_or_none=lambda: None
+            )
+        return SimpleNamespace(
+            scalar_one_or_none=lambda: None, all=lambda: [], one_or_none=lambda: None
+        )
 
     async def scalar(self, *_a, **_k):
         return 0

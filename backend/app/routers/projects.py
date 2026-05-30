@@ -23,8 +23,10 @@ from app.schemas.project import (
     ProjectMemberResponse,
     ProjectResponse,
     ProjectUpdate,
+    StaleNoticeOut,
 )
 from app.services import git_service, qdrant_service
+from app.services import stale_notice as stale_notice_service
 
 log = structlog.get_logger()
 
@@ -46,6 +48,7 @@ def _project_response(
     open_task_count: int | None = None,
     failed_document_count: int = 0,
     unread_change_count: int = 0,
+    stale_notice: StaleNoticeOut | None = None,
     members: list[ProjectMemberOut] | None = None,
 ) -> ProjectResponse:
     return ProjectResponse(
@@ -67,6 +70,9 @@ def _project_response(
         open_task_count=open_task_count,
         failed_document_count=failed_document_count,
         unread_change_count=unread_change_count,
+        last_activity_at=project.last_activity_at,
+        stale_marker=bool(project.stale_marker),
+        stale_notice=stale_notice,
         members=members or [],
     )
 
@@ -87,13 +93,18 @@ async def _enrich_single_project(
     ) or 0
 
     unread_count = 0
+    dismissed_at = None
     if user_id is not None:
-        last_seen = await db.scalar(
-            select(UserProjectView.last_seen_at).where(
-                UserProjectView.user_id == user_id,
-                UserProjectView.project_id == project.id,
+        view_row = (
+            await db.execute(
+                select(UserProjectView.last_seen_at, UserProjectView.stale_dismissed_at).where(
+                    UserProjectView.user_id == user_id,
+                    UserProjectView.project_id == project.id,
+                )
             )
-        )
+        ).one_or_none()
+        last_seen = view_row[0] if view_row else None
+        dismissed_at = view_row[1] if view_row else None
         unread_q = select(func.count(StateChangelog.id)).where(
             StateChangelog.project_id == project.id
         )
@@ -121,12 +132,21 @@ async def _enrich_single_project(
     ).all()
     members = [ProjectMemberOut(id=str(uid), name=name, email=email) for uid, name, email in member_rows]
 
+    notice_dict = stale_notice_service.compute_stale_info(
+        stale_marker=bool(project.stale_marker),
+        last_activity_at=project.last_activity_at,
+        state=latest_state,
+        dismissed_at=dismissed_at,
+    )
+    stale_notice = StaleNoticeOut(**notice_dict) if notice_dict else None
+
     return _project_response(
         project,
         document_count=doc_count,
         open_task_count=open_task_count,
         failed_document_count=failed_count,
         unread_change_count=unread_count,
+        stale_notice=stale_notice,
         members=members,
     )
 
@@ -331,6 +351,36 @@ async def mark_project_seen(
         db.add(UserProjectView(user_id=current_user.id, project_id=project_id, last_seen_at=func.now()))
     else:
         view.last_seen_at = func.now()
+    await db.commit()
+
+
+@router.post("/{project_id}/stale/dismiss", status_code=status.HTTP_204_NO_CONTENT)
+async def dismiss_stale_banner(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    _member: ProjectMember = Depends(get_project_member),
+):
+    """Dismiss the stale banner for this user. Stays dismissed until the next
+    activity (upload / chat) resets ``last_activity_at`` past this timestamp."""
+    view = (
+        await db.execute(
+            select(UserProjectView).where(
+                UserProjectView.user_id == current_user.id,
+                UserProjectView.project_id == project_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if view is None:
+        db.add(
+            UserProjectView(
+                user_id=current_user.id,
+                project_id=project_id,
+                stale_dismissed_at=func.now(),
+            )
+        )
+    else:
+        view.stale_dismissed_at = func.now()
     await db.commit()
 
 

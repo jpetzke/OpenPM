@@ -68,7 +68,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | Q. Session/Auth-Lifecycle | 3 % | 90 / 100 | Refresh-Token-Tabelle + /refresh + Silent-Refresh-Interceptor + 5min-Timer + Message-Puffer + BroadcastChannel + Logout-Revoke live; Phase 2 (HttpOnly-Cookie/CSRF) deferred |
 | R. Notifications & Recovery | 2 % | 100 / 100 | Browser-Notification Opt-in + Complete/Failed-Hook (tab-hidden) + Click-to-Doc + per-Projekt-Tag + requireInteraction live |
 | S. Bulk-Upload | 2 % | 45 / 100 | Pro-File ok, Gruppierung fehlt |
-| T. Stale Detection | 2 % | 0 / 100 | Kein Cron |
+| T. Stale Detection | 2 % | 100 / 100 | ARQ daily-Cron + last_activity_at/stale_marker + overdue-Patch + StaleBanner + bilinguales stale_notice (zero-LLM) |
 | U. Export | 2 % | 0 / 100 | Komplett fehlend |
 | V. Animationen + Timing | 3 % | 60 / 100 | Count-Up + Pulse-Soft + Flash + Pulse-Phase live |
 | W. Nicht-funktional (DevOps/Tests/Obs) | 4 % | 60 / 100 | Docker + Alembic + E2E vorhanden; Observability fehlt |
@@ -888,13 +888,13 @@ Cron-Job (ARQ) läuft 1× täglich:
 - **Keine** Project-Stale-Flag.
 
 ### ✅ Checkliste
-- [ ] ARQ Cron-Task `mark_stale_deadlines` (täglich, 06:00 UTC).
-- [ ] `state.core.deadlines[i].status = "overdue"` automatisch wenn `date < today`.
-- [ ] `projects.last_activity_at` Spalte (Update bei jedem Doc-Upload + jeder Chat-Message).
-- [ ] `projects.stale_marker` Boolean (true wenn `last_activity_at > 14 Tage`).
-- [ ] Cockpit-Banner (über Status-Block) wenn `stale_marker = true`: statischer Template-Text mit Counts, dismissable per X-Button (Dismissal in `user_project_views`).
-- [ ] Status-Block-Summary zeigt überfällige Deadlines explizit rot.
-- [ ] Kein LLM-Call für Stale-Briefing. Template hardcoded in `services/stale_notice.py` (German + English).
+- [x] ARQ Cron-Task `mark_stale_deadlines` (täglich, 06:00 UTC) — worker.py `cron(hour=6, minute=0)`.
+- [x] `state.core.deadlines[i].status = "overdue"` automatisch wenn `date < today` — Cron patcht current-version-JSONB in place (keine neue Version), publiziert `state_changed`.
+- [x] `projects.last_activity_at` Spalte (Update bei jedem Doc-Upload via `_attach_change_session` + jeder Chat-Message; bumpt + cleart `stale_marker`).
+- [x] `projects.stale_marker` Boolean (true wenn `last_activity_at > 14 Tage`, Cron-gesetzt).
+- [x] Cockpit-Banner (über Status-Block) wenn stale: `StaleBanner` rendert `stale_notice.text_de`, dismissable per X → `POST /stale/dismiss` (`user_project_views.stale_dismissed_at`).
+- [x] Status-Block-Summary zeigt überfällige Deadlines explizit rot — `lib/deadlines.ts` `isOverdue` (datums-basiert, G-Sweep) + Cron-persistierter `status=overdue`.
+- [x] Kein LLM-Call für Stale-Briefing. Template hardcoded in `services/stale_notice.py` (German + English, bilinguale `text_de`/`text_en`).
 
 ---
 

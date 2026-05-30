@@ -8,14 +8,14 @@ from pathlib import Path
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from redis.asyncio import Redis
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user, get_project_member
 from app.config import settings
 from app.database import get_db
 from app.models.document import Document
-from app.models.project import ProjectMember
+from app.models.project import Project, ProjectMember
 from app.models.state import ProjectState, StateChangelog
 from app.models.user import User
 from app.schemas.document import (
@@ -183,6 +183,12 @@ async def _attach_change_session(project_id: uuid.UUID, db: AsyncSession) -> uui
     redis = await _redis()
     try:
         session = await change_session_service.get_or_open(project_id, db, redis)
+        # Upload counts as activity → resets the stale clock + clears marker.
+        await db.execute(
+            update(Project)
+            .where(Project.id == project_id)
+            .values(last_activity_at=func.now(), stale_marker=False)
+        )
         await db.commit()
         return session.id
     finally:

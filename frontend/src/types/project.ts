@@ -23,7 +23,19 @@ export interface Project {
   open_task_count?: number | null;
   failed_document_count?: number;
   unread_change_count?: number;
+  last_activity_at?: string | null;
+  stale_marker?: boolean;
+  stale_notice?: StaleNotice | null;
   members?: ProjectMember[];
+}
+
+export interface StaleNotice {
+  is_stale: boolean;
+  days_since_activity: number | null;
+  overdue_deadline_count: number;
+  dismissed: boolean;
+  text_de: string;
+  text_en: string;
 }
 
 /**

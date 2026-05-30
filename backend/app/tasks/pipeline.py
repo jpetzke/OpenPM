@@ -394,6 +394,70 @@ async def close_idle_change_sessions(ctx: dict) -> int:
     return len(closed)
 
 
+async def mark_stale_deadlines(ctx: dict) -> dict:
+    """ARQ daily cron (06:00 UTC): flag stale projects + overdue deadlines.
+
+    Zero LLM calls. For every non-archived project:
+      * set ``stale_marker`` = no activity for > STALE_DAYS days,
+      * annotate pending+past deadlines in the *current* state snapshot with
+        ``status="overdue"`` in place (no new version, only when changed).
+    """
+    from datetime import timedelta
+
+    from app.services import stale_notice
+
+    redis = ctx.get("redis")
+    cutoff = datetime.now(timezone.utc) - timedelta(days=stale_notice.STALE_DAYS)
+    marked_stale = 0
+    deadline_projects = 0
+
+    async with async_session_factory() as db:
+        projects = (
+            await db.execute(select(Project).where(Project.archived_at.is_(None)))
+        ).scalars().all()
+
+        for project in projects:
+            new_marker = (
+                project.last_activity_at is not None
+                and project.last_activity_at < cutoff
+            )
+            if bool(project.stale_marker) != new_marker:
+                project.stale_marker = new_marker
+            if new_marker:
+                marked_stale += 1
+
+            latest = (
+                await db.execute(
+                    select(ProjectState)
+                    .where(ProjectState.project_id == project.id)
+                    .order_by(ProjectState.version.desc())
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+            if latest is not None and latest.state:
+                # JSONB is change-tracked only on reassignment — copy + set.
+                state_copy = dict(latest.state)
+                if stale_notice.mark_overdue_in_state(state_copy):
+                    latest.state = state_copy
+                    deadline_projects += 1
+                    if redis is not None:
+                        await change_session_service._publish(
+                            redis,
+                            f"pipeline:{project.id}",
+                            {"event": "state_changed", "sections": ["deadlines"]},
+                        )
+
+        await db.commit()
+
+    log.info(
+        "stale_cron_done",
+        projects=len(projects),
+        marked_stale=marked_stale,
+        deadline_projects=deadline_projects,
+    )
+    return {"marked_stale": marked_stale, "deadline_projects": deadline_projects}
+
+
 # ─────────────────────────── format routing helpers ───────────────────────────
 
 
