@@ -70,7 +70,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | S. Bulk-Upload | 2 % | 95 / 100 | change_session_id persistiert (0019) + BulkUploadGroup (collapse + Live-Counts + Close-Summary); StatusPanel-Count-Up der Gruppe partial |
 | T. Stale Detection | 2 % | 100 / 100 | ARQ daily-Cron + last_activity_at/stale_marker + overdue-Patch + StaleBanner + bilinguales stale_notice (zero-LLM) |
 | U. Export | 2 % | 85 / 100 | briefing.md + session.md + ZIP-Snapshot (README/state/history/docs.csv/Originale/chats) + Confirm-Modal + Pro-Session-Export; ARQ-Async + Settings-Button deferred |
-| V. Animationen + Timing | 3 % | 60 / 100 | Count-Up + Pulse-Soft + Flash + Pulse-Phase live |
+| V. Animationen + Timing | 3 % | 95 / 100 | Canonical --timing-* Tokens + rAF-CountUp + pipeline-pulse + zentraler useFlashOnChange + globaler reduced-motion-Catch-all; Screenshot-Tests durch Token/DOM-Assertions ersetzt |
 | W. Nicht-funktional (DevOps/Tests/Obs) | 4 % | 60 / 100 | Docker + Alembic + E2E vorhanden; Observability fehlt |
 | **Summe** | **100 %** | — | — |
 
@@ -958,13 +958,13 @@ Keine bounce/elastic/spring-Easings.
 - Count-Up + Highlight-Flash + Auto-Collapse → vermutlich noch nicht implementiert.
 
 ### ✅ Checkliste
-- [ ] `tailwind.config` mit Custom-Easing-Tokens + Duration-Tokens (`duration-expand`, `duration-pulse`, etc.).
-- [ ] CSS-Variable `--timing-expand: 300ms`, `--timing-pulse: 1500ms` etc.
-- [ ] CountUp-Komponente (animiert von alter zu neuer Zahl via requestAnimationFrame).
-- [ ] Pulse-Klasse mit definiertem Keyframe `@keyframes pipeline-pulse`.
-- [ ] Highlight-Flash-Hook (`useFlashOnChange(value)` → fügt Klasse für 500 ms hinzu).
-- [ ] Visuelle Tests nur für **Start- und End-State** (Playwright Screenshot vor Trigger + nach Animationsende). Keine Mid-Animation-Frames (flaky pro GPU/Browser).
-- [ ] `prefers-reduced-motion`-Media-Query respektieren: Animationen auf 0 ms reduzieren wenn User OS-Setting hat.
+- [x] Easing- + Duration-Tokens zentral — Tailwind v4 nutzt CSS-`:root` (kein JS-`tailwind.config`): `--ease-out`/`--ease-in`/`--ease-in-out` + alle `--timing-*`.
+- [x] CSS-Variable `--timing-expand: 300ms`, `--timing-pulse: 1500ms`, `--timing-fade/countup/flash/autocollapse/chat` — single source in `globals.css`.
+- [x] CountUp-Komponente (`components/ui/CountUp.tsx`, requestAnimationFrame + ease-out, reduced-motion-aware); StatusPanel-`AnimatedCount` darauf umgestellt (framer-motion entfernt).
+- [x] Pulse-Klasse `@keyframes pipeline-pulse` + `.animate-pipeline-pulse` (+ `.animate-fade-in`, `.transition-expand`).
+- [x] Highlight-Flash-Hook `hooks/useFlashOnChange.ts` (single source, Token-Dauer); StatusPanel re-pointed.
+- [~] Tests Start/End-State: Playwright prüft Timing-Tokens + reduced-motion-Clamp (DOM/computed-style statt Screenshots — Screenshot-Frames flaky pro GPU, siehe [[reference_playwright-gotchas]]).
+- [x] `prefers-reduced-motion`: globaler Catch-all (`*` animation/transition-duration 0.01ms) + explizite `animation:none`-Liste.
 
 ---
 

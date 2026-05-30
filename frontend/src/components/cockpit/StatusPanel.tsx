@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { animate } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
@@ -10,48 +9,13 @@ import { nextDeadline, formatDeadline } from "@/lib/deadlines";
 import { StateDetailModal } from "./StateDetailModal";
 import { ExportButtons } from "./ExportButtons";
 import { useUsage } from "@/hooks/useUsage";
+import { useFlashOnChange } from "@/hooks/useFlashOnChange";
+import { CountUp } from "@/components/ui/CountUp";
 import type { ProjectState } from "@/types/state";
 
-function useFlashOnChange(version: number | undefined) {
-  const [flashing, setFlashing] = useState(false);
-  const prevRef = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    if (prevRef.current === undefined) {
-      prevRef.current = version;
-      return;
-    }
-    if (version !== prevRef.current) {
-      prevRef.current = version;
-      setFlashing(true);
-      const t = setTimeout(() => setFlashing(false), 500);
-      return () => clearTimeout(t);
-    }
-  }, [version]);
-  return flashing;
-}
-
+// rAF count-up replaces the former framer-motion AnimatedCount (roadmap V).
 function AnimatedCount({ value }: { value: number }) {
-  const [displayed, setDisplayed] = useState(value);
-  const prevRef = useRef(value);
-
-  useEffect(() => {
-    const from = prevRef.current;
-    const to = value;
-    if (from === to) {
-      setDisplayed(to);
-      return;
-    }
-    const controls = animate(from, to, {
-      duration: 0.2,
-      ease: "easeOut",
-      onUpdate: (v) => setDisplayed(Math.round(v)),
-      onComplete: () => setDisplayed(to),
-    });
-    prevRef.current = to;
-    return () => controls.stop();
-  }, [value]);
-
-  return <span data-testid="animated-count">{displayed}</span>;
+  return <CountUp value={value} className="" />;
 }
 
 interface Props {

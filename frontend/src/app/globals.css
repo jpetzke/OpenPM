@@ -49,7 +49,17 @@
 
   /* Motion */
   --ease-out:       cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in:        cubic-bezier(0.4, 0, 1, 1);
   --ease-in-out:    cubic-bezier(0.65, 0, 0.35, 1);
+  /* Canonical timing tokens — single source for the roadmap V timing table.
+     Pattern → duration → easing. No bounce/elastic/spring anywhere. */
+  --timing-expand:       300ms;  /* expand / collapse, chat open/close (ease-out) */
+  --timing-fade:         150ms;  /* fade-in new elements (ease-in) */
+  --timing-countup:      200ms;  /* number count-up (ease-out) */
+  --timing-flash:        500ms;  /* highlight-flash on state update (ease-in-out) */
+  --timing-pulse:        1500ms; /* processing pulse loop (ease-in-out) */
+  --timing-autocollapse: 3000ms; /* delay before auto-collapse after upload */
+  --timing-chat:         300ms;  /* chat open / close (ease-out) */
   --dur-fast:       120ms;
   --dur-base:       180ms;
   --dur-slow:       320ms;
@@ -256,20 +266,54 @@ body::-webkit-scrollbar-thumb {
   40%  { background-color: color-mix(in srgb, var(--accent) 15%, var(--bg-surface)); }
   100% { background-color: var(--bg-surface); }
 }
-.flash { animation: flash 500ms ease-in-out; }
+.flash { animation: flash var(--timing-flash) var(--ease-in-out); }
 
 @keyframes pulse-soft {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.55; }
 }
-.animate-pulse-soft { animation: pulse-soft 1.5s ease-in-out infinite; }
+.animate-pulse-soft { animation: pulse-soft var(--timing-pulse) var(--ease-in-out) infinite; }
 
+/* Canonical processing pulse (roadmap V: @keyframes pipeline-pulse). */
+@keyframes pipeline-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.animate-pipeline-pulse { animation: pipeline-pulse var(--timing-pulse) var(--ease-in-out) infinite; }
+
+/* Expand / collapse + chat open/close utility — 300ms ease-out. */
+.transition-expand {
+  transition: transform var(--timing-expand) var(--ease-out),
+              opacity   var(--timing-expand) var(--ease-out),
+              height    var(--timing-expand) var(--ease-out);
+}
+
+/* Fade-in new elements — 150ms ease-in. */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in { animation: fade-in var(--timing-fade) var(--ease-in) both; }
+
+/* Respect OS reduced-motion: neutralise every animation + transition. The
+   catch-all covers components that don't opt into a named class; the explicit
+   list keeps infinite loops from spinning at 0.01ms. */
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
   .upload-fade-up,
   .upload-shimmer,
   .upload-bar .progress,
   .flash,
-  .animate-pulse-soft {
+  .animate-pulse-soft,
+  .animate-pipeline-pulse,
+  .animate-fade-in {
     animation: none !important;
   }
 }

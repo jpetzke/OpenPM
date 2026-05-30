@@ -74,3 +74,54 @@ test.describe("Section U — export", () => {
     expect(md.headers()["content-type"]).toContain("text/markdown");
   });
 });
+
+test.describe("Section V — animation timing tokens", () => {
+  test("canonical --timing-* tokens are defined on :root", async ({ page }) => {
+    await injectAuth(page);
+    await page.goto(`/projects/${PROJECT_ID}`);
+    await page.waitForLoadState("load");
+
+    // The browser canonicalises time values ("300ms" → ".3s"), so parse to ms.
+    const tokens = await page.evaluate(() => {
+      const cs = getComputedStyle(document.documentElement);
+      const ms = (k: string) => {
+        const v = cs.getPropertyValue(k).trim();
+        if (v.endsWith("ms")) return parseFloat(v);
+        if (v.endsWith("s")) return parseFloat(v) * 1000;
+        return NaN;
+      };
+      return {
+        expand: ms("--timing-expand"),
+        fade: ms("--timing-fade"),
+        countup: ms("--timing-countup"),
+        flash: ms("--timing-flash"),
+        pulse: ms("--timing-pulse"),
+      };
+    });
+    expect(tokens.expand).toBe(300);
+    expect(tokens.fade).toBe(150);
+    expect(tokens.countup).toBe(200);
+    expect(tokens.flash).toBe(500);
+    expect(tokens.pulse).toBe(1500);
+  });
+
+  test("reduced-motion neutralises animation duration", async ({ browser }) => {
+    const context = await browser.newContext({ reducedMotion: "reduce" });
+    const page = await context.newPage();
+    await injectAuth(page);
+    await page.goto(`/projects/${PROJECT_ID}`);
+    await page.waitForLoadState("load");
+    // The global reduced-motion rule clamps every element's animation duration.
+    const dur = await page.evaluate(() => {
+      const el = document.createElement("div");
+      el.className = "animate-pipeline-pulse";
+      document.body.appendChild(el);
+      const d = getComputedStyle(el).animationDuration;
+      el.remove();
+      return d;
+    });
+    // 0.01ms is reported as "0.00001s" — anything sub-millisecond is fine.
+    expect(parseFloat(dur)).toBeLessThan(0.01);
+    await context.close();
+  });
+});
