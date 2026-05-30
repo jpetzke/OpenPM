@@ -47,3 +47,13 @@ test("F2 glance cards", async ({ page }) => {
   const panel = page.getByText("Offene Tasks").locator("..").locator("..").locator("..");
   await panel.screenshot({ path: "test-results/f2-glance-cards-crop.png" }).catch(() => {});
 });
+
+test("F3 kinetic briefing", async ({ page }) => {
+  const projectId = await getOrCreateProjectId();
+  await page.goto(`/projects/${projectId}`);
+  await page.waitForLoadState("load");
+  await page.waitForTimeout(800);
+  await page.getByRole("button", { name: /Vollständiges Briefing anzeigen/i }).click();
+  await page.waitForTimeout(1100); // let the staggered reveal settle
+  await page.screenshot({ path: "test-results/f3-briefing-modal.png", fullPage: false });
+});

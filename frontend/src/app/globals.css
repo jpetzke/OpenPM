@@ -336,6 +336,22 @@ body::-webkit-scrollbar-thumb {
 }
 .line-reveal { animation: line-reveal 420ms var(--ease-out) both; }
 
+/* Kinetic markdown: stagger the reveal of each top-level block so a briefing
+   resolves paragraph-by-paragraph instead of dumping all at once. */
+.kinetic-md > * { animation: line-reveal 420ms var(--ease-out) both; }
+.kinetic-md > *:nth-child(1)  { animation-delay: 0ms; }
+.kinetic-md > *:nth-child(2)  { animation-delay: 55ms; }
+.kinetic-md > *:nth-child(3)  { animation-delay: 110ms; }
+.kinetic-md > *:nth-child(4)  { animation-delay: 165ms; }
+.kinetic-md > *:nth-child(5)  { animation-delay: 220ms; }
+.kinetic-md > *:nth-child(6)  { animation-delay: 275ms; }
+.kinetic-md > *:nth-child(7)  { animation-delay: 330ms; }
+.kinetic-md > *:nth-child(8)  { animation-delay: 385ms; }
+.kinetic-md > *:nth-child(9)  { animation-delay: 440ms; }
+.kinetic-md > *:nth-child(10) { animation-delay: 495ms; }
+.kinetic-md > *:nth-child(11) { animation-delay: 550ms; }
+.kinetic-md > *:nth-child(n+12) { animation-delay: 600ms; }
+
 /* Subtle atmospheric panel — a faint accent glow in one corner, on tokens. */
 .atmos {
   position: relative;
@@ -376,8 +392,10 @@ body::-webkit-scrollbar-thumb {
   .strip-sweep::after,
   .node-glow,
   .rise-in,
-  .line-reveal {
+  .line-reveal,
+  .kinetic-md > * {
     animation: none !important;
   }
-  .line-reveal { filter: none !important; }
+  .line-reveal,
+  .kinetic-md > * { filter: none !important; }
 }
