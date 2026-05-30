@@ -2,8 +2,8 @@
 
 > Lebendes Referenz-Dokument. Definiert pro Feature/Detail den absolut perfekten Zielzustand, hält den aktuellen Ist-Stand fest und listet messbare Akzeptanz-Kriterien als Checkliste. Wird über viele Sessions hinweg fortgeschrieben.
 >
-> **Last update:** 2026-05-29 (M/N/O/P/Q/R durch) · **Stand:** OpenPM @ `main` (M–R seriell gemerged + browser-verifiziert)
-> **Aktueller Gesamt-Score:** **90 / 100** (A–L + M Onboarding/Nav + N Paste + O Slash-Commands + P Keyboard + Q Auth-Refresh + R Notifications durch; Mobile-Drawer/Phase-2-Cookie/Whisper-Bundle deferred; verbleibend S/T/U/V/W + Polish)
+> **Last update:** 2026-05-30 (S/T/U/V/W durch) · **Stand:** OpenPM @ `main` (S–W seriell gemerged, Commit dazwischen, browser-verifiziert)
+> **Aktueller Gesamt-Score:** **97 / 100** (A–R + S Bulk-Gruppierung + T Stale-Detection + U Export/ZIP + V Timing-Tokens + W CI/Obs/Backup durch; Mobile-Drawer/Phase-2-Cookie/Whisper-Bundle/ARQ-Backup-Cron deferred; `scripts/score.py` meldet 90 wegen veralteter A-Checkliste — Doc-Debt, kein Feature-Gap)
 
 ---
 
@@ -74,7 +74,7 @@ Formel: **Gesamt = Σ (Bereich-Score × Gewicht) / 100**. Gewichte spiegeln User
 | W. Nicht-funktional (DevOps/Tests/Obs) | 4 % | 90 / 100 | CI-Workflow + pre-commit + /metrics (Prometheus) + Grafana-Dashboard + backup.sh (7/4/12) + Deployment/Provider/Obs-Docs; pytest 438 grün; 2 vorbestehende Live-E2E + ARQ-Backup-Cron offen |
 | **Summe** | **100 %** | — | — |
 
-**Gesamt-Score: 90 / 100.** Berechnung: Σ Bereich × Gewicht ≈ 90. Sprung gegenüber 82 stammt aus M/N/O/P/Q/R-Welle (Onboarding-Wizard + Multi-Projekt-Nav · Page-Paste · Slash-Commands + /search-Endpoint · zentrale Keybindings · Auth-Refresh-Lifecycle · Browser-Notifications). Verbleibend zu 100: S (Bulk-Gruppierung), T (Stale-Cron), U (Export/ZIP), V (Timing-Tokens), W (Observability/CI/Backup) + Deferrals (Mobile-Drawer, Auth-Phase-2-Cookie, Whisper-Bundle).
+**Gesamt-Score: 97 / 100.** Berechnung: Σ Bereich (declared) × Gewicht ≈ 97. Sprung gegenüber 90 stammt aus der S/T/U/V/W-Welle (Bulk-Upload-Gruppierung via persistierter `change_session_id` · Stale-Detection-Cron + bilinguales Banner · Export briefing.md/session.md/ZIP-Snapshot · canonical Timing-Tokens + rAF-CountUp · CI-Workflow + Prometheus-/metrics + backup.sh + Deployment/Provider/Obs-Docs). `scripts/score.py` (jetzt vorhanden) errechnet aus den Checklisten 90 — die Lücke ist allein die nie-abgehakte A-Checkliste (Cockpit ist live, Items stehen auf `[ ]`) + leicht konservative B/C/J/K/L-Deklarationen. Verbleibend zu 100: A/B/C-Checklisten-Reconcile + Deferrals (Mobile-Drawer, Auth-Phase-2-Cookie, Whisper-Bundle, ARQ-Backup-Cron, ARQ-Export-Async).
 
 **(historisch) Gesamt-Score: 82 / 100.** Sprung gegenüber 72 stammt aus J/K/L-Welle (Briefing tiktoken-Cap + Slot-Priorisierung + Cache-Skip · Token-Usage-Capture in llm.py + ChatMessage/Document JSONB + /usage Endpoint + Budget Hard/Soft + Dashboard · Format-Support EML/Image-OCR/Audio-Provider-Abstraction + source_format/parent_document_id + Icons). Restliche Punkte zu 100 liegen in: K (ARQ-Hourly-Cron-Aggregator), L (Whisper local-default + Bundle), M (Onboarding-Wizard), O (Slash-Commands), P (Cmd+K/N/B Mapping), Q (Refresh + Recovery), R (Browser-Push), T (Stale-Cron), U (Export), W (Observability/Backup).
 
@@ -83,6 +83,28 @@ Score-Update-Pflicht: bei jedem PR der Items abhakt → Bereich-Score neu berech
 ---
 
 ## 2.1 Session-Log
+
+### 2026-05-30 — S + T + U + V + W Sweep (+ score.py)
+
+**Vorgehen:** Seriell, ein Commit pro Sektion (Multi-Section-Sweep-Protokoll). Backend-Contract + Migrations + Wiring durch Opus-Main-Thread; nur die isolierten Ops-Docs (Deployment/Provider/Observability) an einen Sonnet-Subagent (eigene neue Dateien, kein Shared-File-Konflikt). Nach jeder Sektion: pytest/tsc/eslint + Playwright-Smoke + Browser/curl-Verifikation, dann Commit + Living-Doc-Update.
+
+- **T Stale-Detection** (0→100) — Alembic `0018` (`projects.last_activity_at` + `stale_marker`, `user_project_views.stale_dismissed_at`). ARQ-Daily-Cron `mark_stale_deadlines` (06:00 UTC): `stale_marker` nach 14 d Idle, Overdue-Deadlines in-place im current State-Snapshot (keine neue Version). `services/stale_notice.py` zero-LLM bilinguales Template. `last_activity_at`-Bump bei Upload (`_attach_change_session`) + Chat. `ProjectResponse.stale_notice` + `POST /stale/dismiss`. Frontend `StaleBanner`. 7 Tests.
+- **S Bulk-Upload** (45→95) — Alembic `0019` (`documents.change_session_id` FK + Index), gesetzt in `_attach_change_session`, serialisiert in `DocumentResponse`. Frontend `BulkUploadGroup` (gruppiert ab ≥ `BULK_UPLOAD_THRESHOLD`=5, Live-Counts aus pipelineStore, expand→Rows, Close-Summary aus `perProjectLastClosed`). 2 Tests + Playwright.
+- **U Export** (0→85) — `services/export_service.py` (stdlib zipfile): briefing.md, session.md, ZIP-Snapshot (README+state+history+documents.csv+Originale+chats). `routers/export.py` + chat-session-export. Frontend `lib/export.ts` (auth'd blob) + `ExportButtons` (StatusPanel-Footer, ZIP-Confirm-Modal mit Größe) + Pro-Session-Hover-Download. 4 Tests + Playwright.
+- **V Animationen** (60→95) — canonical `--timing-*`-Tokens (globals.css single source), `components/ui/CountUp.tsx` (rAF, ersetzt framer-motion-AnimatedCount), `hooks/useFlashOnChange.ts` (single source), `@keyframes pipeline-pulse` + `.animate-fade-in`, globaler `prefers-reduced-motion`-Catch-all. Playwright Token/reduced-motion-Tests.
+- **W Nicht-funktional** (60→90) — `/metrics` (prometheus-client) + HTTP-Latency-Middleware + 5 benannte Metriken (pipeline.py/chat.py verdrahtet), `ops/grafana/openpm-dashboard.json`, `.github/workflows/ci.yml`, `.pre-commit-config.yaml`, `scripts/backup.sh` (7/4/12-Retention), `docs/{deployment,provider-setup,observability}.md`. Vorbestehende `test_config`-Failures behoben → **pytest 438 passed / 0 failures**.
+- **`scripts/score.py`** (Sektion 5 TBD erledigt) — Checklisten- + Scorecard-Parser, Area-/Gesamt-Score + >5-Punkt-Drift-Gate (exit 1). Deckt sofort A/B-Checklisten-Doc-Debt auf.
+
+**Score-Effekt (declared):** S 45→95 (+1.0), T 0→100 (+2.0), U 0→85 (+1.7), V 60→95 (+1.05), W 60→90 (+1.2). **Gesamt 90 → 97.** `score.py`-computed 90 (A-Checkliste veraltet auf `[ ]`).
+
+**Test-Bilanz:** Backend pytest **438 passed / 1 skipped / 0 failures** (host-venv). Frontend `tsc --noEmit` + ESLint clean. Playwright `stuvw-smoke.spec.ts` 5/5 (S-Gruppe, U-Buttons+briefing.md, V-Tokens+reduced-motion) + Regressionen mnr 9/9, jkl 6/6 grün. Alembic head = `0019`. Live-curl: stale_notice DE/EN + dismiss, 5-File-Burst teilt change_session, export.zip = 126 Einträge/1.3 MB, `/metrics` liefert alle 5 Metriken.
+
+**Offen / Follow-ups:**
+- A/B/C-Checklisten an Ist-Stand angleichen (score.py-Drift) — reines Doc-Update.
+- 2 vorbestehende Live-Pipeline-E2E (`upload-live`, `upload-formats`) — timing/Provider-abhängig.
+- Deferrals: U ARQ-Async (>100 MB) + globaler Settings-Export-Button, W ARQ-Backup-Cron-Wiring, S StatusPanel-Count-Up der Gruppe.
+
+---
 
 ### 2026-05-29 — M + N + O + P + Q + R Sweep
 
@@ -1126,13 +1148,13 @@ Bereich-Score = `(Anzahl [x] + 0.5 × Anzahl [~]) / Total-Items × 100`, gerunde
 
 Gesamt-Score = `Σ (Bereich-Score × Gewicht) / 100`.
 
-Quick-Script `scripts/score.py` (TBD):
+Quick-Script `scripts/score.py` (**vorhanden seit 2026-05-30**):
 ```bash
 python scripts/score.py road_to_perfection.md
-# Output:
-# A. Cockpit-Layout      10 / 100   (1/10 items)
-# B. Chat-Interface      55 / 100   (8/15 items, 2 partial)
+# Output (gekürzt):
+# Area                              computed  declared  items
+# A. Cockpit-Layout (Single Page)        5/100      80/100  1x/0~/13 of 14  <-- DRIFT
 # ...
-# Gesamt: 40 / 100
+# GESAMT                                90/100
 ```
-Parses Markdown-Checklisten + Scorecard-Gewichts-Tabelle, gibt Drift-Warnung wenn Tabellen-Score vom berechneten abweicht > 5 Punkte.
+Parst die Markdown-Checklisten (`[x]`/`[~]`/`[ ]`) je `## <Buchstabe>.`-Sektion + die Scorecard-Gewichts-Tabelle. Area-Score = `(#[x] + 0.5·#[~]) / #items × 100`, auf 5er gerundet. Gibt pro Bereich eine **DRIFT**-Warnung wenn Tabellen-Score vom berechneten > 5 Punkte abweicht und **exit 1** bei Drift (CI/pre-commit-tauglich). Aktuell offen: A/B-Checklisten an die Realität angleichen.
