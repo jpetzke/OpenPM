@@ -2,10 +2,17 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowUpRight } from "lucide-react";
+import {
+  ArrowUpRight,
+  ListChecks,
+  AlertTriangle,
+  Users,
+  Gavel,
+  CalendarClock,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
-import { nextDeadline, formatDeadline } from "@/lib/deadlines";
+import { nextDeadline } from "@/lib/deadlines";
 import { StateDetailModal } from "./StateDetailModal";
 import { ExportButtons } from "./ExportButtons";
 import { useUsage } from "@/hooks/useUsage";
@@ -163,47 +170,177 @@ function StatusRows({ state }: { state: ProjectState }) {
   const core = state.state.core ?? {};
   const openTasks = (core.open_tasks ?? []).filter((t) => t.status !== "done").length;
   const blockerCount = (core.blockers ?? []).length;
+  const contactCount = (core.contacts ?? []).length;
+  const decisionCount = (core.decisions ?? []).length;
   const flashing = useFlashOnChange(state.version);
   const nd = nextDeadline(state.state);
 
   return (
-    <dl className={`flex flex-col gap-1.5 rounded ${flashing ? "flash" : ""}`}>
-      <Row k="Offene Tasks" v={<AnimatedCount value={openTasks} />} />
-      <Row
-        k="Nächste Deadline"
-        v={nd ? formatDeadline(nd.deadline, nd.isOverdue) : "—"}
-        tone={nd?.isOverdue ? "danger" : undefined}
-      />
-      <Row
-        k="Blocker"
-        v={<AnimatedCount value={blockerCount} />}
-        tone={blockerCount > 0 ? "warn" : undefined}
-      />
-      <Row k="Letztes Update" v={formatRelativeTime(state.created_at)} />
-      <Row k="State-Version" v={`v${state.version}`} />
-    </dl>
+    <div className={`rounded ${flashing ? "flash" : ""}`}>
+      {/* Glance cards — high-contrast, tactile, staggered reveal. */}
+      <div className="grid grid-cols-2 gap-2">
+        <GlanceCard
+          icon={ListChecks}
+          label="Offene Tasks"
+          value={openTasks}
+          tone={openTasks > 0 ? "accent" : "neutral"}
+          delay={0}
+        />
+        <GlanceCard
+          icon={AlertTriangle}
+          label="Blocker"
+          value={blockerCount}
+          tone={blockerCount > 0 ? "warn" : "neutral"}
+          delay={40}
+        />
+        <GlanceCard
+          icon={Users}
+          label="Kontakte"
+          value={contactCount}
+          tone="neutral"
+          delay={80}
+        />
+        <GlanceCard
+          icon={Gavel}
+          label="Entscheidungen"
+          value={decisionCount}
+          tone="neutral"
+          delay={120}
+        />
+      </div>
+
+      {/* Next-deadline strip spanning full width. */}
+      <DeadlineStrip nd={nd} />
+
+      {/* Version + freshness footer line. */}
+      <div
+        className="mt-2.5 flex items-center justify-between text-[11px]"
+        style={{ color: "var(--text-muted)" }}
+      >
+        <span className="font-mono tabular-nums">v{state.version}</span>
+        <span>aktualisiert {formatRelativeTime(state.created_at)}</span>
+      </div>
+    </div>
   );
 }
 
-function Row({
-  k,
-  v,
+const TONE_COLOR: Record<"accent" | "warn" | "danger" | "neutral", string> = {
+  accent: "var(--accent)",
+  warn: "var(--warning)",
+  danger: "var(--danger)",
+  neutral: "var(--text-secondary)",
+};
+
+function GlanceCard({
+  icon: Icon,
+  label,
+  value,
   tone,
+  delay,
 }: {
-  k: string;
-  v: React.ReactNode;
-  tone?: "warn" | "danger";
+  icon: typeof ListChecks;
+  label: string;
+  value: number;
+  tone: "accent" | "warn" | "danger" | "neutral";
+  delay: number;
 }) {
-  const valueColor =
-    tone === "warn"
-      ? "var(--warning)"
-      : tone === "danger"
-        ? "var(--danger)"
-        : "var(--text-primary)";
+  const accent = TONE_COLOR[tone];
+  const active = tone !== "neutral" && value > 0;
   return (
-    <div className="flex items-center justify-between text-[13px] py-0.5">
-      <dt style={{ color: "var(--text-muted)" }}>{k}</dt>
-      <dd style={{ color: valueColor, fontWeight: 500 }}>{v}</dd>
+    <div
+      className="rise-in lift-hover rounded-[var(--radius-sm)] border p-2.5 flex flex-col gap-1.5"
+      style={{
+        background: active
+          ? `color-mix(in srgb, ${accent} 8%, var(--bg-elevated))`
+          : "var(--bg-elevated)",
+        borderColor: active
+          ? `color-mix(in srgb, ${accent} 35%, var(--border))`
+          : "var(--border)",
+        animationDelay: `${delay}ms`,
+      }}
+    >
+      <div className="flex items-center gap-1.5">
+        <Icon size={12} style={{ color: active ? accent : "var(--text-muted)" }} />
+        <span
+          className="text-[10px] font-medium uppercase tracking-wider truncate"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {label}
+        </span>
+      </div>
+      <span
+        className="text-2xl font-semibold tabular-nums leading-none"
+        style={{ color: active ? accent : "var(--text-primary)" }}
+      >
+        <AnimatedCount value={value} />
+      </span>
+    </div>
+  );
+}
+
+function DeadlineStrip({
+  nd,
+}: {
+  nd: ReturnType<typeof nextDeadline>;
+}) {
+  const overdue = nd?.isOverdue ?? false;
+  const accent = overdue ? "var(--danger)" : "var(--accent)";
+  const raw = nd?.deadline.date ?? "";
+  const d = raw ? new Date(raw) : null;
+  const dateStr =
+    d && !isNaN(d.getTime())
+      ? `${d.getDate().toString().padStart(2, "0")}.${(d.getMonth() + 1)
+          .toString()
+          .padStart(2, "0")}.${d.getFullYear()}`
+      : null;
+
+  return (
+    <div
+      className="rise-in mt-2 rounded-[var(--radius-sm)] border p-2.5 flex items-center gap-2.5"
+      style={{
+        background: nd
+          ? `color-mix(in srgb, ${accent} 7%, var(--bg-elevated))`
+          : "var(--bg-elevated)",
+        borderColor: nd
+          ? `color-mix(in srgb, ${accent} 30%, var(--border))`
+          : "var(--border)",
+        animationDelay: "160ms",
+      }}
+    >
+      <CalendarClock
+        size={15}
+        className="shrink-0"
+        style={{ color: nd ? accent : "var(--text-muted)" }}
+      />
+      <div className="min-w-0 flex-1">
+        <p
+          className="text-[10px] font-medium uppercase tracking-wider"
+          style={{ color: "var(--text-muted)" }}
+        >
+          {overdue ? "Überfällig" : "Nächste Deadline"}
+        </p>
+        {nd ? (
+          <p
+            className="text-[13px] font-medium truncate"
+            style={{ color: "var(--text-primary)" }}
+            title={nd.deadline.title ?? undefined}
+          >
+            {nd.deadline.title || dateStr}
+          </p>
+        ) : (
+          <p className="text-[13px]" style={{ color: "var(--text-muted)" }}>
+            Keine offenen Fristen
+          </p>
+        )}
+      </div>
+      {nd && dateStr && (
+        <span
+          className="shrink-0 text-xs font-mono tabular-nums font-semibold"
+          style={{ color: accent }}
+        >
+          {dateStr}
+        </span>
+      )}
     </div>
   );
 }

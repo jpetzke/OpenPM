@@ -36,3 +36,14 @@ test("F1 pipeline strip", async ({ page }) => {
   await page.waitForTimeout(700);
   await page.screenshot({ path: "test-results/f1-pipeline-strip.png", fullPage: false });
 });
+
+test("F2 glance cards", async ({ page }) => {
+  const projectId = await getOrCreateProjectId();
+  await page.goto(`/projects/${projectId}`);
+  await page.waitForLoadState("load");
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: "test-results/f2-glance-cards.png", fullPage: false });
+  // Tight crop of the status panel.
+  const panel = page.getByText("Offene Tasks").locator("..").locator("..").locator("..");
+  await panel.screenshot({ path: "test-results/f2-glance-cards-crop.png" }).catch(() => {});
+});
