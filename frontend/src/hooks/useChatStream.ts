@@ -262,13 +262,15 @@ export function useChatStream(projectId: string) {
         return;
       }
 
+      // Stream body fully read. Mark the stream closed and let the throttled
+      // rAF pump finish draining queuedText before completing. Forcing
+      // completion here while text is still queued cleared streamingText and
+      // swapped in the parent's finalized message, but the pump then kept
+      // re-rendering the streaming bubble from the remaining queue — producing
+      // the "double response" the user saw on every reply. flushCompletionIfReady
+      // (called each frame once the queue empties) handles the actual finish.
+      streamClosedRef.current = true;
       flushCompletionIfReady();
-      if (completionRef.current) {
-        const completion = completionRef.current;
-        completionRef.current = null;
-        setState({ streaming: false, sending: false, streamingText: "", activeTools: [], lastError: null });
-        queueMicrotask(() => completion(fullTextRef.current, fullTextRef.current.length > 0));
-      }
     },
     [flushCompletionIfReady, projectId, token, currentSessionId],
   );

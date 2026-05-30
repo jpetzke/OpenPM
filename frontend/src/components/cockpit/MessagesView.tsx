@@ -98,6 +98,23 @@ export function MessagesView({
   const shouldRenderStreamingMessage =
     stream.streaming && Boolean(stream.streamingText);
 
+  // Defensive dedup: while a reply is actively streaming, never also show a
+  // finalized assistant message that duplicates the in-flight text (the saved
+  // message can land via a history refetch before the stream bubble clears).
+  // The streaming bubble is the live one; hide the finalized twin until it ends.
+  const liveText = shouldRenderStreamingMessage ? stream.streamingText.trim() : "";
+  const visibleMessages =
+    liveText.length > 8
+      ? allMessages.filter(
+          (m) =>
+            !(
+              m.role === "assistant" &&
+              (m.content.trim() === liveText ||
+                m.content.trim().startsWith(liveText))
+            ),
+        )
+      : allMessages;
+
   return (
     <div className="flex flex-col h-full" key={historyContainerKey}>
       <div className="flex-1 overflow-y-auto px-6 py-4">
@@ -175,7 +192,7 @@ export function MessagesView({
             </button>
           </div>
         )}
-        {allMessages.map((msg) => (
+        {visibleMessages.map((msg) => (
           <ChatMessageComponent key={msg.id} message={msg} />
         ))}
         {shouldRenderStreamingMessage && (
