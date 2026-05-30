@@ -316,6 +316,13 @@ export const usePipelineStore = create<PipelineState>()((set) => ({
     }),
 }));
 
+// Dev/E2E only: expose the store so Playwright can seed live pipeline state
+// for deterministic screenshots of the cinematic strip. Never set in prod.
+if (typeof window !== "undefined" && process.env.NODE_ENV !== "production") {
+  (window as unknown as { __pipelineStore?: typeof usePipelineStore }).__pipelineStore =
+    usePipelineStore;
+}
+
 export type PipelineStore = PipelineState;
 
 export type ProjectPipelineSummary = {

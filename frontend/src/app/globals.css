@@ -295,6 +295,65 @@ body::-webkit-scrollbar-thumb {
 }
 .animate-fade-in { animation: fade-in var(--timing-fade) var(--ease-in) both; }
 
+/* === Cinematic pipeline strip (Feature 1) === */
+/* Gradient sweep that travels along the connector between phase nodes. */
+@keyframes strip-sweep {
+  0%   { transform: translateX(-120%); }
+  100% { transform: translateX(120%); }
+}
+.strip-sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 70%, transparent) 50%,
+    transparent 100%
+  );
+  animation: strip-sweep 1.4s var(--ease-in-out) infinite;
+}
+/* Soft expanding ring around the currently-active phase node. */
+@keyframes node-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  50%      { box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent); }
+}
+.node-glow { animation: node-glow var(--timing-pulse) var(--ease-in-out) infinite; }
+
+/* === Staggered rise-in (Features 2 & 4) === */
+/* Cards/rows fade up; callers set inline animation-delay for the stagger. */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.rise-in { animation: rise-in 360ms var(--ease-out) both; }
+
+/* === Kinetic line reveal (Feature 3) === */
+/* Briefing lines resolve from a slight blur+offset, one after another. */
+@keyframes line-reveal {
+  from { opacity: 0; transform: translateY(5px); filter: blur(2px); }
+  to   { opacity: 1; transform: translateY(0);  filter: blur(0); }
+}
+.line-reveal { animation: line-reveal 420ms var(--ease-out) both; }
+
+/* Subtle atmospheric panel — a faint accent glow in one corner, on tokens. */
+.atmos {
+  position: relative;
+  isolation: isolate;
+}
+.atmos::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: radial-gradient(
+    120% 80% at 100% 0%,
+    color-mix(in srgb, var(--accent) 9%, transparent) 0%,
+    transparent 55%
+  );
+  pointer-events: none;
+}
+
 /* Respect OS reduced-motion: neutralise every animation + transition. The
    catch-all covers components that don't opt into a named class; the explicit
    list keeps infinite loops from spinning at 0.01ms. */
@@ -313,7 +372,12 @@ body::-webkit-scrollbar-thumb {
   .flash,
   .animate-pulse-soft,
   .animate-pipeline-pulse,
-  .animate-fade-in {
+  .animate-fade-in,
+  .strip-sweep::after,
+  .node-glow,
+  .rise-in,
+  .line-reveal {
     animation: none !important;
   }
+  .line-reveal { filter: none !important; }
 }

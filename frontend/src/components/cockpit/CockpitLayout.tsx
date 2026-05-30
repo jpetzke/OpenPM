@@ -17,6 +17,7 @@ import { StatusPanel } from "./StatusPanel";
 import { DocumentsPanel } from "./DocumentsPanel";
 import { BriefingPanel } from "./BriefingPanel";
 import { StaleBanner } from "./StaleBanner";
+import { PipelineStrip } from "./PipelineStrip";
 import type { ChatMessage, ModelInfo, ChatSession } from "@/types/chat";
 import type { ProjectState, StateChangelog, Task, Deadline, Blocker, Contact } from "@/types/state";
 import type { Project } from "@/types/project";
@@ -692,6 +693,7 @@ export function CockpitLayout({ projectId }: Props) {
     >
       {/* CENTER COLUMN */}
       <div className="flex flex-col h-full min-h-0 min-w-0 overflow-hidden">
+        <PipelineStrip projectId={projectId} />
         <div className="flex-1 min-h-0 overflow-y-auto">
           {viewMode === "landing" ? (
             <LandingView
