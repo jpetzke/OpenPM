@@ -1,11 +1,30 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import {
+  Folder,
+  FileText,
+  MessageSquare,
+  LayoutDashboard,
+  FolderOpen,
+  Archive,
+  CornerDownLeft,
+  ArrowUpDown,
+} from "lucide-react";
 import { api } from "@/lib/api";
 import { useAuthStore } from "@/store/authStore";
 import { useUiStore } from "@/store/uiStore";
+import {
+  Command,
+  CommandDialog,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandSeparator,
+} from "@/components/ui/command";
 import type { Project } from "@/types/project";
 import type { Document } from "@/types/document";
 import type { ChatSession } from "@/types/chat";
@@ -26,14 +45,17 @@ export function CommandPalette({ currentProjectId }: CommandPaletteProps) {
     setQuery("");
   };
 
+  const run = (action: () => void) => {
+    action();
+    close();
+  };
+
   const { data: projects } = useQuery<Project[]>({
     queryKey: ["projects"],
     queryFn: () => api.get<Project[]>("/api/projects"),
     enabled: !!token && open,
   });
 
-  // Current-project documents + chat sessions extend the search scope beyond
-  // project names (roadmap P: Projekte / Chats / Dokumente).
   const { data: documents } = useQuery<Document[]>({
     queryKey: ["projects", currentProjectId, "documents"],
     queryFn: () => api.get<Document[]>(`/api/projects/${currentProjectId}/documents`),
@@ -46,150 +68,173 @@ export function CommandPalette({ currentProjectId }: CommandPaletteProps) {
     enabled: !!token && open && !!currentProjectId,
   });
 
-  // Close on Escape (open/toggle is owned by the global keybindings hook).
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.stopPropagation();
-        close();
-      }
-    };
-    document.addEventListener("keydown", handler, true);
-    return () => document.removeEventListener("keydown", handler, true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
-  const q = query.toLowerCase();
-  const filteredProjects = (projects ?? []).filter(
-    (p) =>
-      p.name.toLowerCase().includes(q) || p.client_name.toLowerCase().includes(q),
-  );
-  const filteredDocs = q
-    ? (documents ?? []).filter((d) => d.original_filename.toLowerCase().includes(q))
-    : [];
-  const filteredSessions = q
-    ? (sessions ?? []).filter((s) => (s.title ?? "").toLowerCase().includes(q))
-    : [];
-
-  const ACTIONS = [
-    { label: "Dokumente", action: () => currentProjectId && router.push(`/projects/${currentProjectId}#docs`) },
-    { label: "Status", action: () => currentProjectId && router.push(`/projects/${currentProjectId}#state`) },
-    { label: "Chat-Archiv", action: () => currentProjectId && router.push(`/projects/${currentProjectId}#archive`) },
-    { label: "Alle Projekte", action: () => router.push("/projects") },
+  const actions = [
+    {
+      label: "Dokumente",
+      icon: FolderOpen,
+      hint: "Upload & Dateien",
+      action: () => currentProjectId && router.push(`/projects/${currentProjectId}#docs`),
+      disabled: !currentProjectId,
+    },
+    {
+      label: "Status",
+      icon: LayoutDashboard,
+      hint: "Projektstatus",
+      action: () => currentProjectId && router.push(`/projects/${currentProjectId}#state`),
+      disabled: !currentProjectId,
+    },
+    {
+      label: "Chat-Archiv",
+      icon: Archive,
+      hint: "Frühere Chats",
+      action: () => currentProjectId && router.push(`/projects/${currentProjectId}#archive`),
+      disabled: !currentProjectId,
+    },
+    {
+      label: "Alle Projekte",
+      icon: Folder,
+      hint: "Übersicht",
+      action: () => router.push("/projects"),
+      disabled: false,
+    },
   ];
 
-  if (!open) return null;
-
-  const sectionLabel = (label: string) => (
-    <div className="px-3 mt-2 mb-1">
-      <span className="text-xs font-medium uppercase tracking-widest" style={{ color: "var(--text-muted)" }}>
-        {label}
-      </span>
-    </div>
-  );
-
-  const row = (key: string, primary: string, secondary: string | null, action: () => void) => (
-    <button
-      key={key}
-      onClick={() => {
-        action();
-        close();
-      }}
-      className="w-full text-left px-4 py-2 text-sm transition-default"
-      style={{ color: "var(--text-secondary)" }}
-      onMouseEnter={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.background = "var(--bg-elevated)";
-      }}
-      onMouseLeave={(e) => {
-        (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-      }}
-    >
-      {primary}
-      {secondary ? (
-        <span className="ml-2 text-xs" style={{ color: "var(--text-muted)" }}>
-          {secondary}
-        </span>
-      ) : null}
-    </button>
-  );
-
-  const noResults =
-    query &&
-    filteredProjects.length === 0 &&
-    filteredDocs.length === 0 &&
-    filteredSessions.length === 0;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center pt-24"
-      style={{ background: "rgba(0,0,0,0.6)" }}
-      onClick={close}
+    <CommandDialog
+      open={open}
+      onOpenChange={(o: boolean) => (o ? setOpen(true) : close())}
+      className="max-w-xl!"
+      title="Befehlspalette"
+      description="Projekte, Chats und Dokumente durchsuchen"
     >
+      <Command>
+      <CommandInput
+        placeholder="Projekte, Chats, Dokumente suchen…"
+        value={query}
+        onValueChange={setQuery}
+      />
+      <CommandList className="max-h-[55vh]">
+        <CommandEmpty>
+          <span style={{ color: "var(--text-muted)" }}>Keine Ergebnisse</span>
+        </CommandEmpty>
+
+        <CommandGroup heading="Aktionen">
+          {actions
+            .filter((a) => !a.disabled)
+            .map((a) => {
+              const Icon = a.icon;
+              return (
+                <CommandItem
+                  key={a.label}
+                  value={`aktion ${a.label} ${a.hint}`}
+                  onSelect={() => run(a.action)}
+                >
+                  <Icon style={{ color: "var(--text-muted)" }} />
+                  <span>{a.label}</span>
+                  <span
+                    className="ml-auto text-xs"
+                    style={{ color: "var(--text-disabled)" }}
+                  >
+                    {a.hint}
+                  </span>
+                </CommandItem>
+              );
+            })}
+        </CommandGroup>
+
+        {(projects?.length ?? 0) > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Projekte">
+              {projects!.map((p) => (
+                <CommandItem
+                  key={p.id}
+                  value={`projekt ${p.name} ${p.client_name}`}
+                  onSelect={() => run(() => router.push(`/projects/${p.id}`))}
+                >
+                  <Folder style={{ color: "var(--accent)" }} />
+                  <span>{p.name}</span>
+                  {p.client_name && (
+                    <span
+                      className="ml-auto text-xs"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {p.client_name}
+                    </span>
+                  )}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
+
+        {(sessions?.length ?? 0) > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Chats">
+              {sessions!.map((s) => (
+                <CommandItem
+                  key={s.id}
+                  value={`chat ${s.title ?? "Unbenannter Chat"}`}
+                  onSelect={() =>
+                    run(() => router.push(`/projects/${s.project_id}#archive`))
+                  }
+                >
+                  <MessageSquare style={{ color: "var(--info)" }} />
+                  <span className="truncate">{s.title ?? "Unbenannter Chat"}</span>
+                  <span
+                    className="ml-auto text-xs tabular-nums"
+                    style={{ color: "var(--text-disabled)" }}
+                  >
+                    {s.message_count} Nachr.
+                  </span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
+
+        {(documents?.length ?? 0) > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Dokumente">
+              {documents!.map((d) => (
+                <CommandItem
+                  key={d.id}
+                  value={`dokument ${d.original_filename}`}
+                  onSelect={() =>
+                    run(() => router.push(`/projects/${d.project_id}#docs`))
+                  }
+                >
+                  <FileText style={{ color: "var(--text-muted)" }} />
+                  <span className="truncate">{d.original_filename}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
+      </CommandList>
+      </Command>
+
+      {/* Raycast-style footer with keyboard hints. */}
       <div
-        className="w-full max-w-lg rounded-xl border shadow-2xl overflow-hidden"
-        style={{ background: "var(--bg-overlay)", borderColor: "var(--border-strong)" }}
-        onClick={(e) => e.stopPropagation()}
+        className="flex items-center justify-between px-3 py-2 mt-1 border-t text-[11px]"
+        style={{ borderColor: "var(--border)", color: "var(--text-muted)" }}
       >
-        <div className="flex items-center gap-3 px-4 border-b" style={{ borderColor: "var(--border)" }}>
-          <Search size={16} style={{ color: "var(--text-muted)" }} />
-          <input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Projekte, Chats, Dokumente suchen..."
-            className="flex-1 py-3 text-sm bg-transparent outline-none"
-            style={{ color: "var(--text-primary)" }}
-          />
+        <span className="flex items-center gap-1.5">
+          <ArrowUpDown size={11} /> Navigieren
+        </span>
+        <span className="flex items-center gap-1.5">
+          <CornerDownLeft size={11} /> Öffnen
           <kbd
-            className="text-xs px-1.5 py-0.5 rounded"
+            className="ml-2 px-1.5 py-0.5 rounded font-mono"
             style={{ background: "var(--bg-elevated)", color: "var(--text-muted)" }}
           >
             Esc
-          </kbd>
-        </div>
-        <div className="py-2 max-h-80 overflow-y-auto">
-          {!query && (
-            <>
-              {sectionLabel("Aktionen")}
-              {ACTIONS.map((a) => row(a.label, a.label, null, a.action))}
-            </>
-          )}
-          {filteredProjects.length > 0 && (
-            <>
-              {sectionLabel("Projekte")}
-              {filteredProjects.map((p) =>
-                row(p.id, p.name, p.client_name, () => router.push(`/projects/${p.id}`)),
-              )}
-            </>
-          )}
-          {filteredSessions.length > 0 && (
-            <>
-              {sectionLabel("Chats")}
-              {filteredSessions.map((s) =>
-                row(s.id, s.title ?? "Unbenannter Chat", null, () =>
-                  router.push(`/projects/${s.project_id}#archive`),
-                ),
-              )}
-            </>
-          )}
-          {filteredDocs.length > 0 && (
-            <>
-              {sectionLabel("Dokumente")}
-              {filteredDocs.map((d) =>
-                row(d.id, d.original_filename, null, () =>
-                  router.push(`/projects/${d.project_id}#docs`),
-                ),
-              )}
-            </>
-          )}
-          {noResults && (
-            <p className="px-4 py-3 text-sm" style={{ color: "var(--text-muted)" }}>
-              Keine Ergebnisse
-            </p>
-          )}
-        </div>
+          </kbd>{" "}
+          Schließen
+        </span>
       </div>
-    </div>
+    </CommandDialog>
   );
 }

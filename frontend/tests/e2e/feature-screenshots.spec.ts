@@ -74,3 +74,17 @@ test("F4 diff timeline", async ({ page }) => {
   await page.waitForTimeout(700);
   await page.screenshot({ path: "test-results/f4-diff-modal.png", fullPage: false });
 });
+
+test("F6 command palette", async ({ page }) => {
+  const projectId = await getOrCreateProjectId();
+  await page.goto(`/projects/${projectId}`);
+  await page.waitForLoadState("load");
+  await page.waitForTimeout(800);
+  await page.keyboard.press("ControlOrMeta+k");
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "test-results/f6-command-palette.png", fullPage: false });
+  // And a filtered view.
+  await page.keyboard.type("doc");
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: "test-results/f6-command-palette-filtered.png", fullPage: false });
+});
