@@ -191,7 +191,7 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
               return (
                 <div key={p.id} className="relative mx-1 my-0.5">
                   <Link
-                    href={`/projects/${p.id}/upload`}
+                    href={`/projects/${p.id}`}
                     className="flex items-center justify-center w-12 h-9 rounded-md transition-default mx-auto"
                     style={{
                       background: isActive ? "var(--bg-elevated)" : "transparent",
@@ -228,7 +228,7 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
                 }}
               >
                 <Link
-                  href={`/projects/${p.id}/upload`}
+                  href={`/projects/${p.id}`}
                   className="flex items-center gap-2 px-3 py-1.5 text-sm transition-default flex-1 min-w-0"
                   style={{
                     color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
@@ -384,7 +384,7 @@ export function AppSidebar({ currentProjectId }: AppSidebarProps) {
                         className="flex items-center gap-1 mx-1 rounded-md group"
                       >
                         <Link
-                          href={`/projects/${p.id}/upload`}
+                          href={`/projects/${p.id}`}
                           className="flex items-center gap-2 px-3 py-1.5 text-sm transition-default flex-1 min-w-0"
                           style={{ color: "var(--text-disabled)" }}
                         >

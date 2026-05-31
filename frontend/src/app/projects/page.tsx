@@ -45,7 +45,7 @@ export default function ProjectsPage() {
       toast.success("Projekt angelegt");
       setRedirectingProjectId(project.id);
       startTransition(() => {
-        router.replace(`/projects/${project.id}/upload`);
+        router.replace(`/projects/${project.id}#docs`);
       });
       void qc.invalidateQueries({ queryKey: ["projects"] });
     },
@@ -172,7 +172,7 @@ export default function ProjectsPage() {
               return (
                 <button
                   key={p.id}
-                  onClick={() => router.push(`/projects/${p.id}/state`)}
+                  onClick={() => router.push(`/projects/${p.id}`)}
                   className="group relative text-left rounded-[var(--radius-md)] border p-6 lift-hover overflow-hidden min-h-[200px] flex flex-col"
                   style={{
                     background: "var(--bg-surface)",

@@ -9,6 +9,8 @@ import {
   Users,
   Gavel,
   CalendarClock,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/utils";
@@ -31,6 +33,8 @@ interface Props {
 
 export function StatusPanel({ projectId }: Props) {
   const [detailOpen, setDetailOpen] = useState(false);
+  // Budget detail (MTD + bar) is a power feature — keep it folded by default.
+  const [showBudget, setShowBudget] = useState(false);
 
   const { data: stateData, isLoading } = useQuery<ProjectState>({
     queryKey: ["projects", projectId, "state"],
@@ -118,13 +122,22 @@ export function StatusPanel({ projectId }: Props) {
           className="mt-3 pt-3 flex flex-col gap-1.5"
           style={{ borderTop: "1px solid var(--border)" }}
         >
-          <div className="flex items-center justify-between text-[12px]">
-            <span style={{ color: "var(--text-muted)" }}>Verbrauch heute</span>
+          <button
+            type="button"
+            onClick={() => budgetUsd && budgetPct !== null && setShowBudget((s) => !s)}
+            disabled={!budgetUsd || budgetPct === null}
+            className="flex items-center justify-between text-[12px] w-full transition-default disabled:cursor-default"
+          >
+            <span className="flex items-center gap-1" style={{ color: "var(--text-muted)" }}>
+              {budgetUsd && budgetPct !== null &&
+                (showBudget ? <ChevronDown size={11} /> : <ChevronRight size={11} />)}
+              Verbrauch heute
+            </span>
             <span style={{ color: "var(--text-primary)", fontWeight: 500 }}>
               ${todayCost.toFixed(4)}
             </span>
-          </div>
-          {budgetUsd && budgetPct !== null && (
+          </button>
+          {showBudget && budgetUsd && budgetPct !== null && (
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between text-[11px]">
                 <span style={{ color: "var(--text-muted)" }}>

@@ -140,7 +140,7 @@ export default function OnboardingPage() {
         client_name: clientName.trim(),
       });
       toast.success("Projekt angelegt — los geht's!");
-      router.replace(`/projects/${project.id}/upload`);
+      router.replace(`/projects/${project.id}#docs`);
     } catch (err) {
       toast.error((err as { message?: string })?.message ?? "Projekt konnte nicht erstellt werden");
       setCreatingProject(false);

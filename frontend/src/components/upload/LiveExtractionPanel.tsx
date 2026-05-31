@@ -184,7 +184,7 @@ export function LiveExtractionPanel({ projectId }: LiveExtractionPanelProps) {
             )}
 
           <Link
-            href={`/projects/${projectId}/state`}
+            href={`/projects/${projectId}`}
             className="inline-flex items-center gap-1 text-xs transition-default"
             style={{ color: "var(--accent)" }}
           >

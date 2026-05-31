@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { X, Sparkles, Copy, Check } from "lucide-react";
+import { X, Sparkles, Copy, Check, ChevronDown, ChevronRight } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import { api } from "@/lib/api";
 import type { Project } from "@/types/project";
@@ -35,6 +35,9 @@ const MD_COMPONENTS = {
 
 export function BriefingPanel({ projectId }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
+  // Briefing is the largest block in the sidebar — collapse it by default so the
+  // sidebar opens quiet; the full text is one click away (here or in the modal).
+  const [collapsed, setCollapsed] = useState(true);
   const { data: project, isLoading } = useQuery<Project>({
     queryKey: ["projects", projectId],
     queryFn: () => api.get<Project>(`/api/projects/${projectId}`),
@@ -48,12 +51,17 @@ export function BriefingPanel({ projectId }: Props) {
       style={{ background: "var(--bg-base)", border: "1px solid var(--border)" }}
     >
       <header className="flex items-center justify-between mb-2.5">
-        <span
-          className="text-xs uppercase tracking-wide"
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="text-xs uppercase tracking-wide flex items-center gap-1 transition-default"
           style={{ color: "var(--text-muted)", fontWeight: 500 }}
+          aria-expanded={!collapsed}
+          aria-label={collapsed ? "Briefing aufklappen" : "Briefing zuklappen"}
         >
+          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
           Briefing
-        </span>
+        </button>
         <div className="flex items-center gap-1.5">
           {project?.briefing_token_count != null && (
             <span
@@ -75,7 +83,7 @@ export function BriefingPanel({ projectId }: Props) {
         </div>
       </header>
 
-      {isLoading ? (
+      {!collapsed && (isLoading ? (
         <div className="space-y-2">
           {[1, 2, 3].map((i) => (
             <div key={i} className="h-3 rounded animate-pulse" style={{ background: "var(--bg-elevated)" }} />
@@ -106,7 +114,7 @@ export function BriefingPanel({ projectId }: Props) {
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
           Noch kein Briefing erstellt. Lade Dokumente hoch, um eines zu generieren.
         </p>
-      )}
+      ))}
 
       {modalOpen && briefing && (
         <BriefingModal

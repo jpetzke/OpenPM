@@ -164,7 +164,7 @@ function FailedRow({ projectId }: { projectId: string }) {
         Verarbeitung fehlgeschlagen.
       </span>
       <Link
-        href={`/projects/${projectId}/upload`}
+        href={`/projects/${projectId}#docs`}
         className="text-xs underline-offset-2 hover:underline"
         style={{ color: "var(--danger)" }}
       >
