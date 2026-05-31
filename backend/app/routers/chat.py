@@ -381,15 +381,23 @@ Projekt: {project.name} | Kunde: {project.client_name or "–"} | Status: {proje
 # Tool execution
 # ---------------------------------------------------------------------------
 
-def _make_tool_summary(tool_name: str, result: dict) -> str:
+def _make_tool_summary(tool_name: str, result: Any) -> str:
+    # Tool handlers return either a list (search/list tools) or a dict (single
+    # results / status). search_documents may wrap its list as {"results": [...]}
+    # when some docs failed to embed.
     if tool_name == "search_documents":
-        count = len(result.get("results", []))
+        if isinstance(result, dict):
+            count = len(result.get("results", []))
+        elif isinstance(result, list):
+            count = len(result)
+        else:
+            count = 0
         return f"{count} Dokument{'e' if count != 1 else ''} gefunden"
     if tool_name == "search_chat_history":
         count = len(result) if isinstance(result, list) else 0
         return f"{count} Nachricht{'en' if count != 1 else ''} im Verlauf gefunden"
     if tool_name == "list_documents":
-        count = len(result.get("documents", []) if isinstance(result, dict) else result if isinstance(result, list) else [])
+        count = len(result) if isinstance(result, list) else 0
         return f"{count} Dokument{'e' if count != 1 else ''} aufgelistet"
     if tool_name == "get_document_content":
         fname = result.get("filename", "") if isinstance(result, dict) else ""
@@ -771,7 +779,7 @@ async def _run_agent(
                 "type": "tool_call_end",
                 "call_id": tc["id"],
                 "tool_name": tc["name"],
-                "result_summary": _make_tool_summary(tc["name"], result if isinstance(result, dict) else {}),
+                "result_summary": _make_tool_summary(tc["name"], result),
             }
             if tc["name"] == "update_task_status" and isinstance(result, dict) and result.get("undo_token"):
                 yield {
