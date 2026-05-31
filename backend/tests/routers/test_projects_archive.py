@@ -31,6 +31,7 @@ def _make_project(*, status: str = "active", archived_at=None) -> SimpleNamespac
         briefing_was_truncated=None,
         briefing_state_version=None,
         briefing_priority_order=None,
+        custom_instructions=None,
         monthly_budget_usd=None,
         archived_at=archived_at,
         last_activity_at=now,
@@ -54,6 +55,10 @@ def test_project_response_serializes_new_fields():
     assert resp.failed_document_count == 4
     assert resp.unread_change_count == 5
     assert resp.archived_at is None
+    # custom_instructions must round-trip through the response builder
+    assert resp.custom_instructions is None
+    p.custom_instructions = "Antworte auf Englisch."
+    assert _project_response(p).custom_instructions == "Antworte auf Englisch."
     # default 0 when not supplied
     assert _project_response(p).failed_document_count == 0
     assert _project_response(p).unread_change_count == 0

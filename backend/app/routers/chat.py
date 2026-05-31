@@ -120,6 +120,31 @@ _TOOL_SEARCH_DOCUMENTS = {
     },
 }
 
+_TOOL_SEARCH_CHAT_HISTORY = {
+    "type": "function",
+    "function": {
+        "name": "search_chat_history",
+        "description": (
+            "Keyword search over previous chat messages in THIS project (across all sessions). "
+            "Use to recall what was previously discussed, asked, or decided in earlier conversations "
+            "— not for facts that live in uploaded documents (use search_documents for those)."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Keyword or phrase to match in message text"},
+                "limit": {
+                    "type": ["integer", "null"],
+                    "description": "Number of results (default 5 if null, max 20)",
+                },
+            },
+            "required": ["query", "limit"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 _TOOL_GET_DOCUMENT_CONTENT = {
     "type": "function",
     "function": {
@@ -168,6 +193,7 @@ _ALL_TOOLS = [
     _TOOL_GET_CURRENT_STATE,
     _TOOL_GET_STATE_HISTORY,
     _TOOL_SEARCH_DOCUMENTS,
+    _TOOL_SEARCH_CHAT_HISTORY,
     _TOOL_GET_DOCUMENT_CONTENT,
     _TOOL_UPDATE_TASK_STATUS,
 ]
@@ -224,6 +250,7 @@ Wähle das Tool nach Absicht — die meisten Fragen brauchen gar kein Tool:
 | Status, Tasks, Deadlines, Kontakte, Blocker, Zusammenfassung | direkt aus <project_context>, kein Tool |
 | exakter Detailwert/Wortlaut aus einem Dokument, "wo steht…", "was genau…" | search_documents(query) → bei Tabellen/Listen/Zitat get_document_content(id) |
 | "Welche Dokumente gibt es?" | direkt aus <project_context> (oder list_documents) |
+| "Was haben wir früher besprochen/entschieden", "worüber haben wir geredet", Bezug auf frühere Chats | search_chat_history(query) |
 | "Was/wann/durch wen geändert" | get_state_history |
 | Task als done/blocked/open markieren | update_task_status(task_id, status) mit ID aus dem Kontext, dann kurz bestätigen |
 Mehrere Tools nacheinander erlaubt (max. {MAX_AGENT_ROUNDS} Runden). Niemals ein Tool aufrufen, dessen Antwort schon im Kontext steht.
@@ -358,6 +385,9 @@ def _make_tool_summary(tool_name: str, result: dict) -> str:
     if tool_name == "search_documents":
         count = len(result.get("results", []))
         return f"{count} Dokument{'e' if count != 1 else ''} gefunden"
+    if tool_name == "search_chat_history":
+        count = len(result) if isinstance(result, list) else 0
+        return f"{count} Nachricht{'en' if count != 1 else ''} im Verlauf gefunden"
     if tool_name == "list_documents":
         count = len(result.get("documents", []) if isinstance(result, dict) else result if isinstance(result, list) else [])
         return f"{count} Dokument{'e' if count != 1 else ''} aufgelistet"
@@ -467,6 +497,31 @@ async def _execute_tool(
             )
             return {"warning": warning, "results": search_results}
         return search_results
+
+    if tool_name == "search_chat_history":
+        limit_arg = tool_args.get("limit")
+        limit = min(int(limit_arg) if limit_arg is not None else 5, 20)
+        query = tool_args["query"]
+        result = await db.execute(
+            select(ChatMessage)
+            .where(
+                ChatMessage.project_id == project_id,
+                ChatMessage.content.ilike(f"%{query}%"),
+                ChatMessage.role.in_(["user", "assistant"]),
+            )
+            .order_by(ChatMessage.created_at.desc())
+            .limit(limit)
+        )
+        messages = result.scalars().all()
+        return [
+            {
+                "session_id": str(m.session_id) if m.session_id else None,
+                "role": m.role,
+                "content": (m.content or "")[:300],
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+            }
+            for m in messages
+        ]
 
     if tool_name == "get_document_content":
         result = await db.execute(

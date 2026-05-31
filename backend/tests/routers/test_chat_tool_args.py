@@ -13,6 +13,7 @@ def test_known_tools_have_models() -> None:
         "get_current_state",
         "get_state_history",
         "search_documents",
+        "search_chat_history",
         "get_document_content",
         "update_task_status",
     }
@@ -52,6 +53,23 @@ def test_search_documents_accepts_null_limit() -> None:
     m = TOOL_ARG_MODELS["search_documents"].model_validate({"query": "hello", "limit": None})
     assert m.query == "hello"
     assert m.limit is None
+
+
+def test_search_chat_history_requires_query() -> None:
+    with pytest.raises(ValidationError):
+        TOOL_ARG_MODELS["search_chat_history"].model_validate({"limit": 5})
+    with pytest.raises(ValidationError):
+        TOOL_ARG_MODELS["search_chat_history"].model_validate({"query": ""})
+
+
+def test_search_chat_history_limit_bounds() -> None:
+    M = TOOL_ARG_MODELS["search_chat_history"]
+    M.model_validate({"query": "x", "limit": 20})
+    M.model_validate({"query": "x", "limit": None})
+    with pytest.raises(ValidationError):
+        M.model_validate({"query": "x", "limit": 21})
+    with pytest.raises(ValidationError):
+        M.model_validate({"query": "x", "limit": 0})
 
 
 def test_get_state_history_limit_bounds() -> None:

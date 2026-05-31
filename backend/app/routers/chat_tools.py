@@ -26,6 +26,11 @@ class SearchDocumentsArgs(_StrictModel):
     limit: int | None = Field(default=None, ge=1, le=10)
 
 
+class SearchChatHistoryArgs(_StrictModel):
+    query: str = Field(min_length=1)
+    limit: int | None = Field(default=None, ge=1, le=20)
+
+
 class GetDocumentContentArgs(_StrictModel):
     document_id: str = Field(min_length=1)
 
@@ -40,6 +45,7 @@ TOOL_ARG_MODELS: dict[str, type[BaseModel]] = {
     "get_current_state": GetCurrentStateArgs,
     "get_state_history": GetStateHistoryArgs,
     "search_documents": SearchDocumentsArgs,
+    "search_chat_history": SearchChatHistoryArgs,
     "get_document_content": GetDocumentContentArgs,
     "update_task_status": UpdateTaskStatusArgs,
 }
