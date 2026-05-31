@@ -27,6 +27,7 @@ class Project(Base):
     briefing_token_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     briefing_was_truncated: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True, default=False)
     briefing_state_version: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    custom_instructions: Mapped[str | None] = mapped_column(Text, nullable=True)
     monthly_budget_usd: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_activity_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

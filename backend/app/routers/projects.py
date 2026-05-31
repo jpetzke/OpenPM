@@ -61,6 +61,7 @@ def _project_response(
         briefing_was_truncated=project.briefing_was_truncated,
         briefing_state_version=project.briefing_state_version,
         briefing_priority_order=project.briefing_priority_order,
+        custom_instructions=project.custom_instructions,
         monthly_budget_usd=project.monthly_budget_usd,
         archived_at=project.archived_at,
         created_at=project.created_at,

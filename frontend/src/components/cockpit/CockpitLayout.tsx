@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { UploadCloud } from "lucide-react";
+import { UploadCloud, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { takePendingMessages, bufferPendingMessage } from "@/lib/authClient";
@@ -18,6 +18,7 @@ import { DocumentsPanel } from "./DocumentsPanel";
 import { BriefingPanel } from "./BriefingPanel";
 import { StaleBanner } from "./StaleBanner";
 import { PipelineStrip } from "./PipelineStrip";
+import { ProjectSettingsModal } from "./ProjectSettingsModal";
 import type { ChatMessage, ModelInfo, ChatSession } from "@/types/chat";
 import type { ProjectState, StateChangelog, Task, Deadline, Blocker, Contact } from "@/types/state";
 import type { Project } from "@/types/project";
@@ -51,6 +52,8 @@ export function CockpitLayout({ projectId }: Props) {
   const [optimisticMessages, setOptimisticMessages] = useState<ChatMessage[]>([]);
   // Local view state: when null && messages empty → landing, otherwise conversation.
   const [viewMode, setViewMode] = useState<"landing" | "conversation">("landing");
+
+  const [showSettings, setShowSettings] = useState(false);
 
   // Page-wide drag-and-drop state.
   const dragDepthRef = useRef(0);
@@ -751,6 +754,19 @@ export function CockpitLayout({ projectId }: Props) {
           borderColor: "var(--border)",
         }}
       >
+        <div className="flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setShowSettings(true)}
+            aria-label="Projekteinstellungen"
+            title="Projekteinstellungen"
+            data-testid="project-settings-button"
+            className="p-1.5 rounded-md transition-default hover:opacity-80"
+            style={{ color: "var(--text-muted)" }}
+          >
+            <Settings size={16} />
+          </button>
+        </div>
         <StaleBanner projectId={projectId} />
         <StatusPanel projectId={projectId} />
         <DocumentsPanel projectId={projectId} />
@@ -789,6 +805,12 @@ export function CockpitLayout({ projectId }: Props) {
           projectId={projectId}
           initialContent={pastePrefill}
           onClose={() => setPastePrefill(null)}
+        />
+      )}
+      {showSettings && (
+        <ProjectSettingsModal
+          projectId={projectId}
+          onClose={() => setShowSettings(false)}
         />
       )}
     </div>

@@ -14,6 +14,7 @@ export interface Project {
   briefing_was_truncated: boolean | null;
   briefing_state_version: number | null;
   briefing_priority_order: string[] | null;
+  custom_instructions: string | null;
   monthly_budget_usd: number | null;
   archived_at?: string | null;
   created_at: string;

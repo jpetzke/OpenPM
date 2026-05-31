@@ -332,6 +332,13 @@ def _build_context_block(
     else:
         docs_section = "Noch keine Dokumente hochgeladen."
 
+    instructions_section = ""
+    if project.custom_instructions and project.custom_instructions.strip():
+        instructions_section = f"""
+
+[Spezielle Anweisungen]  Vom Nutzer für dieses Projekt festgelegt – befolge sie:
+{project.custom_instructions.strip()}"""
+
     return f"""<project_context>
 Projekt: {project.name} | Kunde: {project.client_name or "–"} | Status: {project.status} | Stand v{state_version}
 
@@ -339,7 +346,7 @@ Projekt: {project.name} | Kunde: {project.client_name or "–"} | Status: {proje
 {digest}
 
 [Dokumente]  Format: <id> | <dateiname> | <status> | <zusammenfassung>
-{docs_section}
+{docs_section}{instructions_section}
 </project_context>"""
 
 

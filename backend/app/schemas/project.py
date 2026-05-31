@@ -15,6 +15,7 @@ class ProjectUpdate(BaseModel):
     name: str | None = None
     client_name: str | None = None
     status: str | None = None
+    custom_instructions: str | None = None
     monthly_budget_usd: Decimal | None = None
 
 
@@ -45,6 +46,7 @@ class ProjectResponse(BaseModel):
     briefing_was_truncated: Optional[bool] = None
     briefing_state_version: Optional[int] = None
     briefing_priority_order: Optional[list[str]] = None
+    custom_instructions: str | None = None
     monthly_budget_usd: Optional[Decimal] = None
     archived_at: datetime | None = None
     created_at: datetime
