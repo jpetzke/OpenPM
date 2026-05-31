@@ -21,17 +21,13 @@ test("cockpit: 3-column layout renders with chat input and right panels", async 
   await expect(page.getByText(/Briefing/i).first()).toBeVisible();
 });
 
-test("cockpit: old upload route redirects to cockpit", async ({ page }) => {
+test("cockpit: legacy upload route is gone (404, no redirect shell)", async ({ page }) => {
   const projectId = await getOrCreateProjectId();
 
-  await page.goto(`/projects/${projectId}/upload`);
-  await page.waitForLoadState("load");
-
-  // Should end up on cockpit page
-  await expect(page).toHaveURL(new RegExp(`/projects/${projectId}`));
-
-  // Chat input must still be visible (confirms cockpit rendered)
-  await expect(page.locator("textarea").first()).toBeVisible();
+  // The /upload, /state, /chat redirect routes were removed; the cockpit hub
+  // (/projects/[id]) is the single surface now.
+  const resp = await page.goto(`/projects/${projectId}/upload`);
+  expect(resp?.status()).toBe(404);
 });
 
 test("cockpit: landing view shows suggestions and recent chats", async ({ page }) => {

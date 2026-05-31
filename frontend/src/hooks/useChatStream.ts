@@ -132,8 +132,14 @@ export function useChatStream(projectId: string) {
         if (currentSessionId) body.session_id = currentSessionId;
         const bodyStr = JSON.stringify(body);
 
+        // Hit the backend directly, bypassing the Next.js dev rewrite. The dev
+        // proxy buffers/gzips chunked responses, which holds the whole SSE
+        // stream until the end — tools + text would then all appear at once.
+        // NEXT_PUBLIC_API_URL is wired in compose (same approach as useProjectSSE).
+        const chatUrl = `${process.env.NEXT_PUBLIC_API_URL ?? ""}/api/projects/${projectId}/chat`;
+
         let effectiveToken = token;
-        let res = await fetch(`/api/projects/${projectId}/chat`, {
+        let res = await fetch(chatUrl, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${effectiveToken}`,
@@ -148,7 +154,7 @@ export function useChatStream(projectId: string) {
           const newToken = await refreshAccessToken();
           if (newToken) {
             effectiveToken = newToken;
-            res = await fetch(`/api/projects/${projectId}/chat`, {
+            res = await fetch(chatUrl, {
               method: "POST",
               headers: {
                 Authorization: `Bearer ${newToken}`,
