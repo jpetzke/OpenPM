@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   History,
   PencilLine,
+  MessagesSquare,
   Wrench,
 } from "lucide-react";
 import type { ActiveToolCall } from "@/types/chat";
@@ -19,6 +20,7 @@ import type { ActiveToolCall } from "@/types/chat";
 // the exact tool name, arguments, and one-line result — nothing runs off-screen.
 const TOOL_ICONS: Record<string, typeof Search> = {
   search_documents: Search,
+  search_chat_history: MessagesSquare,
   list_documents: Files,
   get_document_content: FileText,
   get_current_state: LayoutDashboard,
@@ -29,6 +31,7 @@ const TOOL_ICONS: Record<string, typeof Search> = {
 // Present-tense, while-running labels. Once done we prefer the result summary.
 const TOOL_LABELS: Record<string, string> = {
   search_documents: "Durchsucht Dokumente",
+  search_chat_history: "Durchsucht Chatverlauf",
   list_documents: "Listet Dokumente auf",
   get_document_content: "Liest Dokument",
   get_current_state: "Liest Projektstatus",
